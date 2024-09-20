@@ -1,0 +1,79 @@
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/sequencing_results/
+# By C.E.T. Huyghe (2024)
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1`
+
+# Make list raw sequence files
+LISTRS=`cat raw_seq_files.txt | grep ${MYID} | grep '_R1_'`
+
+# Move list files to temporal directory
+cat ${LISTRS} > $TMPDIR/${MYID}.fastq.gz
+
+# Cat the file and calculate number of lines
+READRS=`zcat $TMPDIR/${MYID}.fastq.gz | wc -l`
+
+# Calculate number of sequences
+READRS4=`echo $((READRS/4))`
+
+# Add to raw sequence number file
+echo ${MYID}"	"${READRS4} >> Raw_seq_R1_Refgut_Nr.txtqq
+
+# Make list quality filtered files
+LISTFP=`cat fastp_seq_files.txt | grep ${MYID} | grep '.R1.'`
+
+# Copy to temporal directory
+cp $LISTFP $TMPDIR/${MYID}.fastq.gz
+
+# Cat the file and calculate number of lines
+READFP=`zcat $TMPDIR/${MYID}.fastq.gz | wc -l`
+
+# Calculate number of sequences
+READFP4=`echo $((READFP/4))`
+
+# Add to fastp number file
+echo ${MYID}"	"${READFP4} >> fastp_seq_R1_Nr.txt
+
+# Do same for filtering
+# Make list files
+LIST=`cat NoOrenil_seq_files.txt | grep ${MYID} | grep '_1.fastq.gz'`
+LIST2=`cat NoMB_seq_files.txt | grep ${MYID} | grep '_1.fastq.gz'`
+LIST3=`cat NoHuman_seq_files.txt | grep ${MYID} | grep '_1.fastq.gz'`
+LIST4=`cat NoHost_seq_files.txt | grep ${MYID} | grep '_1.fastq.gz'`
+
+# Copy to temporal directory
+cp $LIST $TMPDIR/${MYID}.fastq.gz
+cp $LIST2 $TMPDIR/${MYID}2.fastq.gz
+cp $LIST3 $TMPDIR/${MYID}3.fastq.gz
+cp $LIST4 $TMPDIR/${MYID}4.fastq.gz
+
+# Count number of lines
+READ=`zcat $TMPDIR/${MYID}.fastq.gz | wc -l`
+READ2=`zcat $TMPDIR/${MYID}2.fastq.gz | wc -l`
+READ3=`zcat $TMPDIR/${MYID}3.fastq.gz | wc -l`
+READ4=`zcat $TMPDIR/${MYID}4.fastq.gz | wc -l`
+
+# Calculate number of sequences
+READS=`echo $((READ/4))`
+READS2=`echo $((READ2/4))`
+READS3=`echo $((READ3/4))`
+READS4=`echo $((READ4/4))`
+
+# Put data in file
+echo ${MYID}"	"${READS}"	"${READS3}"	"${READS2}"	"${READS4} >> filtered_seq_R1_Nr.txt
+
+# Calculate number of reads assigned by Kraken2
+# With RefSeq DB
+# Define line in report with info
+ASSIRS=`grep 'R	1	root' /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/*/kraken/kraken_RefSeqv205_DB/NoHostSP/${MYID}/${MYID}_nohostsp_30_report.txt | cut -d '       ' -f2`
+
+# Put in file
+echo ${MYID}"	"${ASSIRS} >> Assigned_seq_kraken_Nr.txt
+
+# With focus DB
+# Define line in report with info
+ASSIF=`grep 'R	1	root' /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/*/kraken/kraken_focus_DB/${MYID}/${MYID}_focus_NoHost_report.txt | cut -d '	' -f2`
+
+# Put in file
+echo ${MYID}"   "${ASSIF} >> Assigned_seq_focus_NoHost_kraken_Nr.txt

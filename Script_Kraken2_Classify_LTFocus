@@ -1,0 +1,33 @@
+## Script that classifies cleaned Metagenomics files with Kraken2 against the custom LT focus database
+# By C.E.T. Huyghe (2024)
+
+# Load module
+ml Kraken2/2.1.1-foss-2018b-Perl-5.28.0
+
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/zambia_2020/kraken/kraken_focus_DB # set working directory
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1`
+
+# Define files after removal of host species
+read1=$(cat NoHostSP.txt | grep ${MYID} | grep "_unmapped_hostsp_1.fastq.gz")
+read2=$(cat NoHostSP.txt | grep ${MYID} | grep "_unmapped_hostsp_2.fastq.gz")
+
+# Make new directory for every sample
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/zambia_2020/kraken/kraken_focus_DB/${MYID}
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/zambia_2020/kraken/kraken_focus_DB/${MYID}
+
+# Use Kraken on database with a confidence threshold of 0.3, because of comparison
+kraken2 --db /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/focus_database/focus_db --threads 4 --confidence 0.30 --output $TMPDIR/${MYID}_03.kraken --report $TMPDIR/${MYID}_03_report.txt --report-minimizer-data --report-zero-counts --use-names --paired $read1 $read2
+
+# Compress the output fasta files
+gzip $TMPDIR/*.fastq
+
+# Copy the needed files from the temporal directory to the sample directory
+cp $TMPDIR/${MYID}_03.kraken ${MYID}_focus_NoHost.kraken
+cp $TMPDIR/${MYID}_03_report.txt ${MYID}_focus_NoHost_report.txt
+cp $TMPDIR/classified_seq_03_${MYID}_1.fastq.gz classified_seq_${MYID}_1_focus_NoHost.fastq.gz
+cp $TMPDIR/unclassified_seq_03_${MYID}_1.fastq.gz unclassified_seq_${MYID}_1_focus_NoHost.fastq.gz
+#cp $TMPDIR/unclassified_seq_03_${MYID}_2.fastq.gz unclassified_seq_${MYID}_2_focus_NoHost.fastq.gz
+

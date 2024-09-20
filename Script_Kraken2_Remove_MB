@@ -1,0 +1,35 @@
+## Script to remove read mapping to the standard Kraken2 database, containing bacterial and viral genomes
+# To use on fastq where host (Oreochromis niloticus) and human DNA is removed
+# By C.E.T. Huyghe (2024)
+
+# Load module
+ml Kraken2/2.1.1-foss-2018b-Perl-5.28.0
+
+# Set directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/kraken/kraken_MB_DB # set working directory
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1`
+echo ${MYID}_test
+
+# Define read file where human DNA was removed
+read1=$(ls /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/kraken/kraken_MB_DB/${MYID}/unclassified_seq_${MYID}_human_1.fastq.gz)
+read2=$(ls /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/kraken/kraken_MB_DB/${MYID}/unclassified_seq_${MYID}_human_2.fastq.gz)
+echo $read1
+echo $read2
+
+# Make new directory for every sample
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/kraken/kraken_MB_DB/${MYID}
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/kraken/kraken_MB_DB/${MYID}
+
+# Use Kraken2
+#classified-out for sequences that were mapped, unclassified for the ones that did not map
+kraken2 --db /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/zambia_2020/kraken/kraken_MB_DB/Kraken2_standard_DB --threads 4 --classified-out $TMPDIR/classified_seq_${MYID}_nohost#.fastq --unclassified-out $TMPDIR/unclassified_seq_${MYID}_nohost#.fastq --output $TMPDIR/${MYID}_nohost.kraken --report $TMPDIR/${MYID}_nohost.report.txt --report-minimizer-data --use-names --paired $read1 $read2
+
+# Compress fasta files, only unclassified needed
+gzip $TMPDIR/unclassified_seq_${MYID}_nohost_1.fastq
+gzip $TMPDIR/unclassified_seq_${MYID}_nohost_2.fastq
+
+# Copy from temporal directory to sample directory
+cp $TMPDIR/unclassified_seq_${MYID}_nohost_1.fastq.gz unclassified_seq_${MYID}_MB_1.fastq.gz
+cp $TMPDIR/unclassified_seq_${MYID}_nohost_2.fastq.gz unclassified_seq_${MYID}_MB_2.fastq.gz

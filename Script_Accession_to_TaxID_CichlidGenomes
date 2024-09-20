@@ -1,0 +1,7 @@
+## Make file with Accession and TaxID of genomes from NCBI
+# By C.E.T. Huyghe (2024)
+
+cat /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/cichlid_X_DB/Accession_names.txt | while IFS= read -r line || [[ -n "$line" ]];
+do 
+echo "${line}" | xargs -I {} /scicore/home/salzburg/huyghe0000/edirect/esearch -db assembly -query ${line} | /scicore/home/salzburg/huyghe0000/edirect/esummary | /scicore/home/salzburg/huyghe0000/edirect/xtract -pattern DocumentSummary -element AssemblyAccession,Taxid >> Accession_TaxID.txt
+done

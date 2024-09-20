@@ -1,0 +1,18 @@
+## Script to remove contaminants like adapters, using an NCBI program and database
+# By C.E.T. Huyghe (2024)
+
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/FCS/fcsadaptor
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1` # Sample ID
+
+# Define configs file
+read=$(cat Refgut_contigs.txt | grep ${MYID}) # Contig reads
+
+# Make sample directory
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/FCS/fcsadaptor/${MYID}
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/FCS/fcsadaptor/${MYID}
+
+# Run FCS Adaptor
+/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/FCS/fcsadaptor/run_fcsadaptor.sh --fasta-input ${read} --output-dir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/FCS/fcsadaptor/${MYID} --euk --container-engine singularity --image /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/FCS/fcsadaptor/fcs-adaptor.sif

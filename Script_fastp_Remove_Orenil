@@ -1,0 +1,59 @@
+## Script to clean and trim the sequences from the NovaSeq DNA run by using fastp, and to remove host DNA (Oreochromis niloticus for all samples) using BWA
+# By C.E.T. Huyghe (2024)
+
+# Load module
+ml fastp/0.23.2-GCC-10.3.0
+
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/fastp_preprocessing # set working directory
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1` # Most samples are done after a day, some need 1 week
+
+# Make a fastp and nohost directory for every sample
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/fastp_preprocessing/${MYID}.fastp
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/fastp_preprocessing/${MYID}.nohost
+
+# Concatenate all lanes per sample
+# First make a list of the output fasta files per sample
+FILELIST1=$(ls /scicore/projects/openbis/userstore/duw_salzburger/2023*/*_${MYID}_*R1*.fastq.gz)
+FILELIST2=$(ls /scicore/projects/openbis/userstore/duw_salzburger/2023*/*_${MYID}_*R2*.fastq.gz)
+
+# Concatenate these lists into one file
+cat ${FILELIST1} > /$TMPDIR/${MYID}_R1_cat.fastq.gz
+cat ${FILELIST2} > /$TMPDIR/${MYID}_R2_cat.fastq.gz
+
+# Fastp preprocessing
+# Run the fastp to clean, trim and remove duplicates
+fastp -i $TMPDIR/${MYID}_R1_cat.fastq.gz -I $TMPDIR/${MYID}_R2_cat.fastq.gz -o $TMPDIR/${MYID}_fastp.R1.fq.gz -O $TMPDIR/${MYID}_fastp.R2.fq.gz -a -l 30 -c -g --dedup --adapter_sequence=AGATCGGAAGAGCACACGTCTGAACTCCAGTCA --adapter_sequence_r2=AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT --cut_front --cut_tail --cut_window_size 4 --cut_mean_quality 30 --qualified_quality_phred 30 --unqualified_percent_limit 30 --n_base_limit 5 --length_required 50 #Try 2, using some values from https://gitlab.com/treangenlab/quality_control_tutorial
+
+# Remove host DNA mapping to Orenil
+# Purge old and load new modules
+module purge
+ml BWA/0.7.17-foss-2018b
+ml SAMtools/1.9-foss-2018b
+
+# Use BWA to map sequences to Orenil
+bwa mem /scicore/home/salzburg/GROUP/NCBI_Orenil_GCF_001858045_2/ncbi-genomes-2020-01-13/GCF_001858045.2_O_niloticus_UMD_NMBU_genomic.fna $TMPDIR/${MYID}_fastp.R1.fq.gz $TMPDIR/${MYID}_fastp.R2.fq.gz > $TMPDIR/${MYID}.sam
+
+# Extract unmapped sequences
+samtools view -h -f 12 -F 256 -S $TMPDIR/${MYID}.sam > $TMPDIR/${MYID}_unmapped.sam
+
+# Put unmapped forward and reverse into different files
+samtools fastq $TMPDIR/${MYID}_unmapped.sam -1 $TMPDIR/${MYID}_unmapped_1.fastq -2 $TMPDIR/${MYID}_unmapped_2.fastq
+
+# Compress files
+gzip $TMPDIR/*.fastq
+samtools view -bS $TMPDIR/${MYID}.sam > $TMPDIR/${MYID}.bam
+samtools view -bS $TMPDIR/${MYID}_unmapped.sam > $TMPDIR/${MYID}_unmapped.bam
+
+# Copy from temporal directory to active one
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/fastp_preprocessing/${MYID}.fastp
+cp $TMPDIR/${MYID}_fastp.R1.fq.gz ${MYID}_fastp.R1.fq.gz
+cp $TMPDIR/${MYID}_fastp.R2.fq.gz ${MYID}_fastp.R2.fq.gz
+
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/fastp_preprocessing/${MYID}.nohost
+cp $TMPDIR/${MYID}.bam ${MYID}_orenil.bam
+cp $TMPDIR/${MYID}_unmapped.bam ${MYID}_unmapped_orenil.bam
+cp $TMPDIR/${MYID}_unmapped_1.fastq.gz ${MYID}_unmapped_orenil_1.fastq.gz
+cp $TMPDIR/${MYID}_unmapped_2.fastq.gz ${MYID}_unmapped_orenil_2.fastq.gz
