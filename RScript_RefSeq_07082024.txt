@@ -1,0 +1,2967 @@
+###########################################################
+# RScript for metagenomic analysis of cichlid food sources
+###########################################################
+# For reads classified using Kraken2 and the RefSeq v205 database, from the digestive system
+# By C.E.T. Huyghe
+
+# Set working directory
+setwd("/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/Kraken_NoHostSP_R/")
+
+# Load required packages
+library(taxize)
+library(ggtree)
+library(ape)
+library(ggplot2)
+library(phyloseq)
+library(vegan)
+library(plyr)
+library(dplyr)
+library(gridExtra)
+library(ggfortify)
+library(caper)
+library(DESeq2)
+library(phytools)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+library(reshape2)
+
+###################################
+# Load metadata of cichlid samples 
+###################################
+# Load field data and metadata of the cichlid samples and species
+all_metadata <- read.delim(file="../Metadata_DNA_15112023.txt",sep="\t",check.names=FALSE, row.names = 1)
+
+# Remove reference samples
+all_metadata_1 <- all_metadata[ ! all_metadata$TissueID == 'Refgut',]
+
+# Remove hybrid sample
+all_metadata_1 <- all_metadata_1[ ! all_metadata_1$SpecimenID == 'TYD7',]
+
+# Remove samples clusering with the wrong species in phylogenetic tree
+all_metadata_1 <- all_metadata_1[ ! all_metadata_1$TissueTubeID == 'TXD2',]
+all_metadata_1 <- all_metadata_1[ ! all_metadata_1$TissueTubeID == 'VIE9',]
+all_metadata_1 <- all_metadata_1[ ! all_metadata_1$TissueTubeID == 'TZB5',]
+
+# Calculate species means of standard body length
+library(plyr)
+library(dplyr)
+
+SL_vars <- ddply(all_metadata_1, .(SpeciesID), summarize, SL_mean=mean(SL), SL_std_dev=sd(SL))
+
+# Calculate species means of weight
+Weigth_vars <- ddply(all_metadata_1, .(SpeciesID), summarize,Weight_mean=mean(Weight), Weight_std_dev=sd(Weight))
+
+# Load genome-wide phylogenetic tree from Ronco et al. (2021)
+ActualPhylogeny = "/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/b1_with_Oretan.tre"
+pruned.tree = ape::read.tree(ActualPhylogeny)
+
+# Define the cichlid species part of the analysis
+spp <- all_metadata_1[order(all_metadata_1$Tribe),]
+species <- unique(spp$SpeciesID)
+
+# Keep only the species of this study in the tree
+pruned.tree = drop.tip(pruned.tree, pruned.tree$tip.label[-which(pruned.tree$tip.label %in% species)])
+
+# Plot the tree
+plot(pruned.tree)
+
+# Calculate Zihler's Index (Zihler) from the field data in this study, using the gut length and weight
+LNG_CETH <- all_metadata_1[c("SpeciesID","SL","TL","Weight","GL","Tribe")]
+LNG_CETH$Zihler <- (LNG_CETH$GL)/((sqrt(sqrt(LNG_CETH$Weight))))
+
+# Calculate the relative gut length (RLG), with total gut length over standard body length
+LNG_CETH$RGL <- LNG_CETH$GL/LNG_CETH$SL
+
+# Plot the Zihler's Index and relative gut length from this study
+library(ggplot2)
+
+# Define tribe colours
+tribe_colours <- c("Bathybatini"="#242626", "Benthochromini"="#AE262A", "Boulengerochromini"="#59595C", "Cyphotilapiini"="#FDDF13","Cyprichromini"="#F04D29","Ectodini"="#9AB9D9","Eretmodini"="#682E7A","Haplochromini"="darkgreen","Lamprologini"="#C588BB","Limnochromini"="#535CA9", "Perissodini"="orange","Trematocarini"="#959170", "Tropheini"="#86C773","Oreochromini"="grey")
+
+# Define Zihler's Index boxplot
+zhl_plot <- ggplot(LNG_CETH, aes(SpeciesID,Zihler, fill=Tribe)) +
+  geom_boxplot() +
+  theme_minimal() +
+  theme(axis.title=element_text(size=12),
+        axis.title.y = element_text(vjust = 2.5),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10, color = "black"),
+        axis.text.y = element_text( size=10, color = "black"),
+        legend.position="none")+
+  scale_fill_manual(values=tribe_colours) + 
+  scale_x_discrete(limits=rev(pruned.tree$tip.label)) +
+  xlab("Chichlid species") +
+  ylab("Zihler's Index for gut length")
+
+# Define relative gut length boxplot
+lng_plot <- ggplot(LNG_CETH, aes(SpeciesID,RGL, fill=Tribe)) +
+  geom_boxplot() +
+  theme_minimal() +
+  theme(axis.title=element_text(size=12),
+        axis.title.y = element_text(vjust = 2.5),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10, color = "black"),
+        axis.text.y = element_text( size=10, color = "black"),
+        legend.position="none")+
+  scale_fill_manual(values=tribe_colours) + 
+  scale_x_discrete(limits=rev(pruned.tree$tip.label)) +
+  xlab("Chichlid species") +
+  ylab("Relative gut length")
+
+# Combine boxplots
+grid.arrange(zhl_plot,lng_plot)
+
+# Calculate species means and standard deviation of Zihler's Index and relative gut length
+ZHL_vars_CETH <- ddply(LNG_CETH, .(SpeciesID), summarize, ZHL_mean=mean(Zihler), ZHL_std_dev=sd(Zihler))
+RGL_vars_CETH <- ddply(LNG_CETH, .(SpeciesID), summarize, RGL_mean=mean(RGL), RGL_std_dev=sd(RGL))
+
+# Load Principal Component PC1 and PC2 scores of Body (BDY), Lower Pharyngeal Jaw (LPJ) and Upper Oral Jaw (UOJ) shape from Ronco et al. (2021)
+LPj <- read.delim(file="../PCA_pc_scores_LPJ.txt",sep="\t",check.names=FALSE, row.names = 1)
+UOJ <- read.delim(file="../PCA_pc_scores_UOJ.txt",sep="\t",check.names=FALSE, row.names = 1)
+BDY <- read.delim(file="PCA_pc12_scores_body copy.txt",sep="\t",check.names=FALSE, row.names = 1)
+
+# Calculate their species means and standard deviation
+LPJ_vars <- ddply(LPj, .(sp), summarize, LPJ_PC1_mean=mean(LPJ_PC1), LPJ_PC1_std_dev=sd(LPJ_PC1),LPJ_PC2_mean=mean(LPJ_PC2), LPJ_PC2_std_dev=sd(LPJ_PC2))
+UOJ_vars <- ddply(UOJ, .(sp), summarize, UOJ_PC1_mean=mean(UOJ_PC1), UOJ_PC1_std_dev=sd(UOJ_PC1),UOJ_PC2_mean=mean(UOJ_PC2), UOJ_PC2_std_dev=sd(UOJ_PC2))
+BDY_vars <- ddply(BDY, .(sp), summarize, BDY_PC1_mean=mean(PC1), BDY_PC1_std_dev=sd(PC1),BDY_PC2_mean=mean(PC2), BDY_PC2_std_dev=sd(PC2))
+
+################################################
+# Load the RefSeq v205 Kraken2 combined reports
+################################################
+# Read table generated using combine_kreport.py
+matrix <- read.delim(file="../kraken_combined_RefSeq_NoHost_30_report.txt",sep="\t") 
+
+# Rename the rownames by NCBI TaxID
+rownames(matrix) <- matrix$taxid
+
+# Remove unnecessary columns
+# Includes % total reads, combined number of reads (including reads within subtree), combined number of reads (only at this level), taxonomic classification level, name of level
+matrix_2 <- as.data.frame(subset(matrix, select = -c(lvl_type,name,X.perc,tot_all,tot_lvl,taxid)))
+
+# Remove TaxID's with no reads
+matrix_3 <- matrix_2[rowSums(matrix_2[])>0,]
+
+# Remove of each sample the total nr of reads at tax level, only use the nr of reads at that specific level
+matrix_3 <- as.data.frame(t(matrix_3))
+matrix_4 <- dplyr::filter(matrix_3, grepl('_lvl', rownames(matrix_3))) 
+rownames(matrix_4) <- sub("_lvl", "", rownames(matrix_4))
+matrix_4 <- as.data.frame(t(matrix_4))
+
+# Remove taxIDs without reads at that specific level
+matrix_5 <- matrix_4[rowSums(matrix_4[])>0,]
+
+# Replace colnames by sample names
+# Use file with smaple names in same order
+colnames <- read.delim(file="../samples_NoHost_30_report.txt",sep="\t" )
+matrix_6 <- matrix_5
+colnames(matrix_6) <- colnames$SampleID
+
+rm(matrix)
+rm(matrix_2)
+rm(matrix_3)
+rm(matrix_4)
+rm(matrix_5)
+
+###################################
+# Make Taxonomy table and filter
+###################################
+# Extract TaxID's from dataset
+taxaId <- rownames(matrix_6)
+
+# Make table with the whole NCBI taxonomy of the specific TaxID's
+library(taxonomizr)
+TaxID <- getTaxonomy(taxaId,'../taxonomy_ncbi/accessionTaxa.sql')
+TaxID <- data.frame(TaxID)
+
+# Only keep Eukaryota for food source identification
+Euk <- rownames(TaxID[TaxID$superkingdom == 'Eukaryota',])
+Tax_table <- TaxID[rownames(TaxID) %in% Euk, ]
+
+# Check phyla that are present
+unique(Tax_table$phylum)
+
+# Remove Cichlids
+# Might belong to the cichlid species and not their food source 
+# Higher confidence threshold Kraken2 needed to differentiate
+Tax_table_strict <- Tax_table[ ! Tax_table$order %in% "Cichliformes", ]
+
+# Also remove Chordata and Actinopterygii that are not identified to order level
+# These might include reads originating from the cichlid species and not the food source
+# First identify TaxID's of Chordata with no classification at order and family level
+Tax_table_inter <- Tax_table_strict[ Tax_table_strict$phylum %in% "Chordata", ]
+Tax_table_inter_2 <- Tax_table_inter[is.na(Tax_table_inter$order), ] 
+Tax_table_inter_3 <- Tax_table_inter_2[is.na(Tax_table_inter_2$family), ] 
+
+# Identify TaxID's of Chordata with no class classification
+OnlChr <- rownames(Tax_table_inter_3[is.na(Tax_table_inter_3$class), ] )
+
+# Identify TaxID's of class Actinopteri/Actinopterygii with no order or family
+OnlAct <- rownames(Tax_table_inter_3[Tax_table_inter_3$class == "Actinopteri", ] )
+
+# Remove these TaxID's from the dataset
+Tax_table_strict <- Tax_table_strict[ ! rownames(Tax_table_strict) %in% OnlChr, ]
+Tax_table_strict <- Tax_table_strict[ ! rownames(Tax_table_strict) %in% OnlAct, ]
+
+# Remove taxa not identified lower than Eukaryota
+Tax_table_strict0 <- Tax_table_strict[is.na(Tax_table_strict$phylum), ] 
+Tax_table_strict00 <- Tax_table_strict0[is.na(Tax_table_strict0$class), ] 
+Tax_table_strict000 <- Tax_table_strict00[is.na(Tax_table_strict00$order), ] 
+Tax_table_strict <- Tax_table_strict[ ! rownames(Tax_table_strict) %in% rownames(Tax_table_strict000), ]
+
+# Remove spaces in rownames of the tax and abundance table that might cause errors
+row.names(matrix_6) <- gsub(' ', '', row.names(matrix_6))
+row.names(Tax_table_strict) <- gsub(' ', '', row.names(Tax_table_strict))
+
+# Keep only these rows in abundance table for which we have a taxonomy, which were filtered
+matrix_abund_0 <- matrix_6[ rownames(matrix_6) %in% rownames(Tax_table_strict), ]
+
+# Keep only samples from the metadata in the abundance table
+# From which reference, hybrid and problematic samples were removed
+matrix_abund_0 <- matrix_abund_0[ ,colnames(matrix_abund_0) %in% rownames(all_metadata_1) ]
+
+# Check total nr of reads per sample
+tot_nr_0 <- as.data.frame( colSums(matrix_abund_0))
+rownames(tot_nr_0) <- colnames(matrix_abund_0)
+tot_nr_0$Sample <- rownames(tot_nr_0)
+tot_nr_0$read_count <- tot_nr_0$`colSums(matrix_abund_0)`
+
+# Explore nr reads per sample
+summary(tot_nr_0)
+plot(density(tot_nr_0$read_count))
+hist(tot_nr_0$read_count,breaks=100)
+plot(sort(tot_nr_0$read_count))
+sort(tot_nr_0$read_count)
+
+# Check total nr of reads per OTU
+tot_nr_OTU <- as.data.frame(rowSums(matrix_abund_0))
+tot_nr_OTU$Sample <- rownames(tot_nr_OTU)
+tot_nr_OTU$read_count <- tot_nr_OTU$`rowSums(matrix_abund_0)`
+
+# Explore OTU count
+summary(tot_nr_OTU)
+hist(tot_nr_OTU$read_count,breaks=100)
+plot(sort(tot_nr_OTU$read_count))
+plot(tail(sort(tot_nr_OTU$read_count),100))
+
+# Filter samples and OTU's
+matrix_abund_1 <- matrix_abund_0
+matrix_abund_1 <- matrix_abund_1[rowSums(matrix_abund_1) > 10,]
+matrix_abund_1 <- matrix_abund_1[,colSums(matrix_abund_1) >= 100]
+matrix_abund_2 <- matrix_abund_1[,colSums(matrix_abund_1 > 20) >= 2]
+
+# To taxonomy after filtering
+Tax_table_strict_2 <- Tax_table_strict[ rownames(Tax_table_strict) %in% rownames(matrix_abund_2), ]
+
+# Add taxonomy details to missing data of Actinopterygii
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Pomacentridae')),"order"] <- "Ovalentaria incertae sedis Pomacentridae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Ambassidae')),"order"] <- "Ovalentaria incertae sedis Ambassidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Opistognathidae')),"order"] <- "Ovalentaria incertae sedis Opistognathidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, genus=='Lates')),"family"] <- "Latidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Latidae')),"order"] <- "Carangaria incertae sedis Latidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Toxotidae')),"order"] <- "Carangaria incertae sedis Toxotidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Menidae')),"order"] <- "Carangaria incertae sedis Menidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Lactariidae')),"order"] <- "Carangaria incertae sedis Lactariidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Sciaenidae')),"order"] <- "Eupercaria incertae sedis Sciaenidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Moronidae')),"order"] <- "Eupercaria incertae sedis Moronidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Emmelichthyidae')),"order"] <- "Eupercaria incertae sedis Emmelichthyidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Pomacanthidae')),"order"] <- "Eupercaria incertae sedis Pomacanthidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Scatophagidae')),"order"] <- "Eupercaria incertae sedis Scatophagidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, family=='Sillaginidae')),"order"] <- "Eupercaria incertae sedis Sillaginidae"
+
+# Add phylum to Dinophyceae
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, class == 'Dinophyceae')),"phylum"] <- "Myzozoa"
+
+# Reassign Octopoda to Mollusca
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, class=='Cephalopoda')),"order"] <- NA
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, class=='Cephalopoda')),"family"] <- NA
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, class=='Cephalopoda')),"genus"] <- NA
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, class=='Cephalopoda')),"class"] <- NA
+
+# Reassign Anthoathacata to Limnomedusae
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, order == 'Anthoathecata')),"family"] <- "Olindiidae"
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, order == 'Anthoathecata')),"genus"] <- NA
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, order == 'Anthoathecata')),"species"] <- NA
+Tax_table_strict_2[rownames(subset(Tax_table_strict_2, order == 'Anthoathecata')),"order"] <- "Limnomedusae"
+
+# Remove Amphibia, Aves, Mammalia, Reptilia and Chondrichthyes
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$class %in% c("Aves","Amphibia","Mammalia","Chondrichthyes","Lepidosauria"), ]
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$order %in% c("Crocodylia","Testudines","Petromyzontiformes","Amphioxiformes","Stolidobranchia","Phlebobranchia"), ]
+
+# Remove Actinopterygii orders not in LT
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$order %in% c("Atheriniformes","Beloniformes","Blenniiformes","Ovalentaria incertae sedis Pomacentridae","valentaria incertae sedis Ambassidae","Carangaria incertae sedis Toxotidae","Carangaria incertae sedis Menidae","Carangiformes","Pleuronectiformes","Istiophoriformes","Eupercaria incertae sedis Sciaenidae","Eupercaria incertae sedis Moronidae","Spariformes","Labriformes","Centrarchiformes","Acropomatiformes","Lutjaniformes","Priacanthiformes","Gobiiformes","Kurtiformes","Batrachoidiformes","Syngnathiformes","Scombriformes","Holocentriformes","Gadiformes","Myctophiformes","Salmoniformes","Esociformes","Gymnotiformes","Elopiformes","Anguilliformes","Semionotiformes","Acipenseriformes","Ovalentaria incertae sedis Ambassidae","Perciformes","Coelacanthiformes"), ]
+
+# Remove eDNA as ref
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$species %in% "Mollusca environmental sample", ]
+
+# Remove Animalia taxa considered parasitic
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$phylum %in% c("Acanthocephala","Platyhelminthes","Nematoda"), ]
+
+# Remove Protista
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$phylum %in% c("Ciliophora","Myzozoa","Fornicata","Apicomplexa"), ]
+
+# Remove Fungi
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$phylum %in% c("Microsporidia","Mucoromycota","Oomycota","Ascomycota"), ]
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$order %in% "Malasseziales", ]
+
+# Keep only these rows in abundance table for which we have a taxonomy
+matrix_abund_2 <- matrix_abund_2[ rownames(matrix_abund_2) %in% rownames(Tax_table_strict_2), ]
+
+# Remove samples with zero counts due to the removal of taxa
+matrix_abund_2 <- matrix_abund_2[,colSums(matrix_abund_2) >= 1]
+
+# Keep only samples from the abundance table in the metadata
+all_metadata_2 <- all_metadata_1[ rownames(all_metadata_1) %in% colnames(matrix_abund_2) ,]
+
+##############################
+# Make a PhyloSeq object
+##############################
+library(phyloseq)
+library(vegan)
+
+# Specify datasets needed
+otu_mat <- matrix_abund_2
+tax_mat <- Tax_table_strict_2
+samples_df <- all_metadata_2
+
+# Transform otu table to matrix with numeric values
+otu_mat <- as.matrix(otu_mat)
+class(otu_mat) <- "numeric"
+
+# Transform taxonomy table to matrix
+tax_mat <- as.matrix(tax_mat)
+
+# Transform matrices to phyloseq objects
+OTU = phyloseq::otu_table(otu_mat, taxa_are_rows = TRUE)
+TAX = phyloseq::tax_table(tax_mat)
+samples = phyloseq::sample_data(samples_df)
+
+# Make phyloseq object
+physeq <- phyloseq::phyloseq(OTU, TAX, samples)
+physeq
+
+################################################################################
+# Analysis at Phylum Level
+###########################
+##############################
+# Make subset to phylum level 
+##############################
+# Make physeq with identification to phylum level
+
+# Subset phyloseq object at phylum level
+physeq_phylum <- tax_glom(physeq, taxrank=rank_names(physeq)[2], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Filter otu table at phylum level
+df_physeq_phylum <- as.data.frame(otu_table(physeq_phylum))
+
+# Remove hits with fewer than 20 counts
+df_physeq_phylum[(df_physeq_phylum) < 20 ] <- 0
+
+# Remove phyla with fewer than 500 total counts
+df_physeq_phylum <- df_physeq_phylum[rowSums(df_physeq_phylum) >= 500,]
+
+# Remove hits with fewer than 0.5 % count abundance in a sample
+df_physeq_phylum[apply(df_physeq_phylum,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add again to the phyloseq object
+otu_table(physeq_phylum) <- phyloseq::otu_table(df_physeq_phylum, taxa_are_rows = TRUE)
+
+# Remove Samples that have fewer than 100 counts left
+physeq_phylum = prune_samples(sample_sums(physeq_phylum)>=100, physeq_phylum)
+physeq_phylum
+
+##########################
+# Nr total reads
+##########################
+# Investigate min, max, mean, median and standard deviation in number of reads per sample
+summary(colSums(otu_table(physeq_phylum)))
+sd(colSums(otu_table(physeq_phylum)))
+
+##############################
+# Calculate diversity indices
+##############################
+# Has to be calculated from non-normalised counts
+# Plot the Shannon and Chao1 diversity indices
+div_phl_plot <- plot_richness(physeq_phylum, x='SpeciesID', measures=c("Shannon","Chao1"), color="Tribe") +
+  geom_point(size=2) +
+  geom_boxplot(aes(fill=Tribe),alpha=0.7,size=0.5 ) +
+  theme_minimal() +
+  theme(axis.title=element_text(size=10),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+        axis.text.y = element_text( size=8),
+        legend.position="none")+
+  scale_colour_manual(values=tribe_colours) +
+  scale_fill_manual(values=tribe_colours) + 
+  scale_x_discrete(limits=rev(pruned.tree$tip.label))
+
+div_phl_plot
+
+###############################
+# Make initial abundance plots 
+###############################
+# Define colours
+phyla_cols = c("Annelida"="lightpink3","Arthropoda"="peru", "Bacillariophyta"="darkseagreen2", "Chlorophyta"="palegreen3","Algae"= "#2f7d44" , "Chordata"="#224e66","Cnidaria"="ghostwhite","Mollusca"="brown","Nematoda"="indianred4","Platyhelminthes"="lightpink3","Porifera"="khaki1","Streptophyta"="mediumseagreen","Myzozoa"="gray38","Rotifera"="lightsalmon4")
+
+# Define ordering of species and tribe by order in the phylogenetic tree
+Species_ordering <- rev(pruned.tree$tip.label)
+Tribe_ordering <-unique(with(all_metadata_2, Tribe[match(Species_ordering,all_metadata_2$SpeciesID)]))
+
+# Stacked barplot of absolute read counts
+phyloseq::plot_bar(physeq_phylum, fill="phylum") + 
+  geom_bar(aes(fill = phylum), stat="identity", position="stack") +
+  labs(x = "", y = "Total number of counts") +
+  theme(axis.title=element_text(size=12, color = "black"),
+        strip.text.x = element_text(),
+        strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  facet_wrap(factor(Tribe, level=Tribe_ordering)~factor(SpeciesID, level=Species_ordering), scales=("free"),nrow=5) +
+  scale_x_discrete(label=NULL)  + 
+  theme(panel.background = element_blank()) +
+  scale_fill_manual(values=phyla_cols)+
+  xlab("Sample")
+
+# Take relative value
+physeq_phylum_relabund <- phyloseq::transform_sample_counts(physeq_phylum, function(x) x / sum(x))
+
+# Stacked barplot of relative counts
+phyloseq::plot_bar(physeq_phylum_relabund, fill="phylum") + 
+  geom_bar(aes(fill = phylum), stat="identity", position="stack") +
+  labs(x = "", y = "Relative number of counts") +
+  theme(axis.title=element_text(size=12, color = "black"),
+        strip.text.x = element_text(),
+        strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  facet_wrap(factor(Tribe, level=Tribe_ordering)~factor(SpeciesID, level=Species_ordering), scales=("free"),nrow=5) +
+  scale_x_discrete(label=NULL)  + 
+  theme(panel.background = element_blank()) +
+  scale_fill_manual(values=phyla_cols) +
+  xlab("Sample")
+
+############################
+# Merge samples per species
+############################
+# Take relative values
+physeq_fact <- phyloseq::transform_sample_counts(physeq_phylum, function(x) (x / sum(x)*100))
+
+# Merge samples by species
+merged_species <- merge_samples(physeq_fact, "SpeciesID", fun=mean) 
+
+# Add metadata
+sample_data(merged_species)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(merged_species)),all_metadata_2$SpeciesID)])
+sample_data(merged_species)$Tribe <-with(all_metadata_2, Tribe[match(rownames(sample_data(merged_species)),all_metadata_2$SpeciesID)])
+sample_data(merged_species)$d13C_mean <-with(all_metadata_2, d13C_mean[match(rownames(sample_data(merged_species)),all_metadata_2$SpeciesID)])
+sample_data(merged_species)$d15N_mean <-with(all_metadata_2, d15N_mean[match(rownames(sample_data(merged_species)),all_metadata_2$SpeciesID)])
+
+####################################
+# Make phylum abundance per species
+####################################
+# Merge samples by Specimen
+# Take the sum of samples belonging to the same individual
+physeq_phylum_Specimen <- merge_samples(physeq_phylum,"SpecimenID",fun=sum)
+
+# Then merge by species
+# Take relative abundance for equal contribution each individual
+physeq_phylum_Specimen1 <- phyloseq::transform_sample_counts(physeq_phylum_Specimen, function(x) (x / sum(x)*100))
+
+# Add SpeciesID to sample data
+sample_data(physeq_phylum_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_phylum_Specimen1)),all_metadata_2$SpecimenID)])
+
+# Merge by SpeciesID
+physeq_phylum_Specimen_spp <- merge_samples(physeq_phylum_Specimen1, "SpeciesID", fun=mean) 
+
+# Add metadata
+sample_data(physeq_phylum_Specimen_spp)$d15N_mean <-with(all_metadata_2, d15N_mean[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$d15N_std_dev <-with(all_metadata_2, d15N_std_dev[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$Sampling <-with(all_metadata_2, Sampling[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$Tribe <-with(all_metadata_2, Tribe[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$BreedingType <-with(all_metadata_2, BreedingType[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$BreedingMode <-with(all_metadata_2, BreedingMode[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$d13C_mean <-with(all_metadata_2, d13C_mean[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$d13C_std_dev <-with(all_metadata_2, d13C_std_dev[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$FoodCat <-with(all_metadata_2, FoodCat[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_phylum_Specimen_spp)$Habitat <-with(all_metadata_2, Habitat[match(rownames(sample_data(physeq_phylum_Specimen_spp)),all_metadata_2$SpeciesID)])
+
+# Take relative values
+physeq_phylum_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_phylum_Specimen_spp, function(x) (x / sum(x)*100))
+
+# plot initial stacked barplot
+plot_bar(physeq_phylum_Specimen_spp_rel, fill="phylum") + 
+  geom_bar(aes(fill = phylum), stat="identity", position="stack") +
+  labs(x = "", y = "Relative Abundance\n") +
+  theme(strip.text.x = element_text(size = 12, color = "black" ),strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  scale_x_discrete()  + 
+  theme(panel.background = element_blank()) +
+  scale_fill_manual(values=phyla_cols)
+
+# Extract otu_table from Phyloseq object as count table
+phylum_Specimen_spp_rel = as(otu_table(physeq_phylum_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's by their phylum for graph
+colnames(phylum_Specimen_spp_rel) <- with(Tax_table_strict_2, phylum[match(colnames(phylum_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Melt count table for stacking 
+bar_phylum_sp_otu <- melt(phylum_Specimen_spp_rel, id.vars = "SpeciesID", variable.name = "Phylum")
+
+# Define numeric and factor
+bar_phylum_sp_otu$value <- as.numeric(bar_phylum_sp_otu$value)
+bar_phylum_sp_otu$Var2 <- factor(bar_phylum_sp_otu$Var2)
+bar_phylum_sp_otu$Var1 <- factor(bar_phylum_sp_otu$Var1)
+
+# Add table with the phyla identified as a food source by the literature
+Phyla_Lit <- read.delim(file="../Lit_Diet_Phylum_08022024.txt",sep="\t",check.names=FALSE, row.names = 1)
+
+# Melt the literature table
+Phyla_Lit_melt <- melt(t(Phyla_Lit), id.vars = "SpeciesID", variable.name = "Phylum")
+
+# Define numeric
+Phyla_Lit_melt$value <- as.numeric(Phyla_Lit_melt$value)
+
+# Make table with the metadata of the species
+Metadata_spp <- all_metadata_2[c("SpeciesID", "Tribe","BreedingType","d15N_mean", "d13C_mean", "FoodCat","Habitat")]
+Metadata_spp <- Metadata_spp[!duplicated(Metadata_spp), ]
+rownames(Metadata_spp) <- Metadata_spp$SpeciesID
+Metadata_spp$d15N_mean <- as.numeric(Metadata_spp$d15N_mean)
+Metadata_spp$d13C_mean <- as.numeric(Metadata_spp$d13C_mean)
+
+# Make basis figure with phylogenetic tree
+p <- ggtree(pruned.tree, ladderize = FALSE)
+
+# Assign cichlid tribes to tips tree
+p$data$Tribe <- with(Metadata_spp, Tribe[match(p$data$label,rownames(Metadata_spp))])
+
+# Check tribes in tree
+p + geom_tree(size=1.5,aes(colour=Tribe)) + scale_colour_manual(values=tribe_colours) + geom_text(aes(label=node), hjust=-.3) + geom_treescale()
+
+# Define tribes of other branches
+p$data$Tribe[p$data$parent >= 85 & p$data$parent < 94 ] <- "Tropheini"
+p$data$Tribe[p$data$parent == 84 & p$data$node == 85 ] <- "Tropheini"
+p$data$Tribe[p$data$parent == 83 & p$data$node == 95 ] <- "Eretmodini"
+p$data$Tribe[p$data$parent == 96 & p$data$node == 98 ] <- "Cyprichromini"
+p$data$Tribe[p$data$parent >= 101 & p$data$parent < 108 ] <- "Ectodini"
+p$data$Tribe[p$data$parent == 100 & p$data$node == 109 ] <- "Limnochromini"
+p$data$Tribe[p$data$parent == 100 & p$data$node == 101 ] <- "Ectodini"
+p$data$Tribe[p$data$parent == 99 & p$data$node == 110 ] <- "Cyphotilapiini"
+p$data$Tribe[p$data$parent >= 62 & p$data$parent < 80 ] <- "Lamprologini"
+p$data$Tribe[p$data$parent == 61 & p$data$node == 62 ] <- "Lamprologini"
+p$data$Tribe[p$data$parent == 112 & p$data$node == 114 ] <- "Trematocarini"
+p$data$Tribe[p$data$parent == 114 & p$data$node == 115 ] <- "Trematocarini"
+p$data$Tribe[p$data$parent == 112 & p$data$node == 113 ] <- "Bathybatini"
+
+# Make initial Fig.1 with phylogenetic tree, literature food sources, stable isotopes and phylum abundances
+p + geom_tree(size=1.3,aes(colour=Tribe)) + 
+  scale_colour_manual(values=tribe_colours) + 
+  geom_treescale()+
+  geom_tiplab(geom="text",offset=0,size=3,as_ylab=FALSE) +
+  geom_fruit(data=bar_phylum_sp_otu, geom=geom_bar,mapping=aes(y=Var1, x=value,fill = Var2), stat="identity", width = 0.9,pwidth=2,offset=0.7)+
+  scale_fill_manual(values=phyla_cols) + 
+  new_scale_colour() +
+  geom_fruit(data=Phyla_Lit_melt,geom=geom_point,mapping=aes(y=Var1,x=Var2,colour=Var2, size=value), pwidth = 0.3, offset=-1.24,grid.params=list()) +
+  scale_colour_manual(values=phyla_cols) +
+  scale_size_continuous(range = c(-1, 5))  + 
+  new_scale_fill() +
+  geom_fruit(data=Metadata_spp,geom=geom_tile,mapping=aes(y=SpeciesID,fill=d13C_mean),width = 0.6, offset=-2.1) + 
+  scale_fill_distiller(direction=1) + new_scale_fill() + 
+  new_scale_fill() +
+  geom_fruit(data=Metadata_spp,geom=geom_tile,mapping=aes(y=SpeciesID,fill=d15N_mean),width = 0.6, offset=0.045) + 
+  scale_fill_distiller(direction=1,palette='YlOrBr') 
+
+# Print Fig. 1 with cichlid images
+library(ggimage)
+
+pdf(file = "Plot_abund_phyla_01082024.pdf",   # The directory you want to save the file in
+    width = 20, # The width of the plot in inches
+    height = 10) # The height of the plot in inches
+
+p + geom_tree(size=1.3,aes(colour=Tribe)) + 
+  scale_colour_manual(values=tribe_colours) + 
+  geom_treescale()+
+  geom_tiplab(geom="text",offset=0,size=3,as_ylab=FALSE) +
+  geom_fruit(data=bar_phylum_sp_otu, geom=geom_bar,mapping=aes(y=Var1, x=value,fill = Var2), stat="identity", width = 0.9,pwidth=2,offset=0.7)+
+  scale_fill_manual(values=phyla_cols) + 
+  new_scale_colour() +
+  geom_fruit(data=Phyla_Lit_melt,geom=geom_point,mapping=aes(y=Var1,x=Var2,colour=Var2, size=value), pwidth = 0.3, offset=-1.24,grid.params=list()) +
+  scale_colour_manual(values=phyla_cols) +
+  scale_size_continuous(range = c(-1, 5))  + 
+  new_scale_fill() +
+  geom_fruit(data=Metadata_spp,geom=geom_tile,mapping=aes(y=SpeciesID,fill=d13C_mean),width = 0.6, offset=-2.1) + 
+  scale_fill_distiller(direction=1) + new_scale_fill() + 
+  new_scale_fill() +
+  geom_fruit(data=Metadata_spp,geom=geom_tile,mapping=aes(y=SpeciesID,fill=d15N_mean),width = 0.6, offset=0.045) + 
+  scale_fill_distiller(direction=1,palette='YlOrBr') +  
+  geom_tiplab(aes(image=paste0("../Drawings_Diet_cichlids/",label,'.png')),geom="image",offset=2.25,size=.03)  
+
+dev.off()
+
+##################################################################
+# Investigate most abundant phyla and which occur in each species
+##################################################################
+# Make dataset with most abundant phylum in each species
+main_phylum <- as.data.frame(colnames(phylum_Specimen_spp_rel)[apply(phylum_Specimen_spp_rel,1,which.max)])
+
+# Modify names
+rownames(main_phylum) <- rownames(phylum_Specimen_spp_rel)
+main_phylum$phylum <- main_phylum$`colnames(phylum_Specimen_spp_rel)[apply(phylum_Specimen_spp_rel, 1, which.max)]`
+
+# Check which phyla are main
+unique(main_phylum$phylum)
+
+# Check main phyla in how many species
+length(which(main_phylum$phylum == "Arthropoda"))
+length(which(main_phylum$phylum == "Bacillariophyta"))
+length(which(main_phylum$phylum == "Chordata"))
+length(which(main_phylum$phylum == "Streptophyta"))
+length(which(main_phylum$phylum == "Chlorophyta"))
+length(which(main_phylum$phylum == "Cnidaria"))
+
+# Check the relative abundance of phyla over all species
+colSums(phylum_Specimen_spp_rel)/nrow(phylum_Specimen_spp_rel)
+
+# Investigate occurrence of phyla in each species
+phylum_Specimen_spp_rel2 <- phylum_Specimen_spp_rel
+
+# Defined to occur in species if present more than 0.5 %
+phylum_Specimen_spp_rel2[phylum_Specimen_spp_rel2 >= 0.5] <- 1
+phylum_Specimen_spp_rel2[phylum_Specimen_spp_rel2 < 0.5] <- 0
+
+# Check in how many species the phyla occur
+colSums(phylum_Specimen_spp_rel2)
+
+# Check the occurence of phyla in species over all species
+colSums(phylum_Specimen_spp_rel2)/nrow(phylum_Specimen_spp_rel2)
+
+##################################
+# FOO% per species over specimens
+##################################
+# Take otu table per specimen
+phylum_Specimen = as(otu_table(physeq_phylum_Specimen), "matrix")
+
+# Make copy where we keep original TaxIDs
+phylum_Specimen0 <- phylum_Specimen
+
+# Rename TaxID's
+colnames(phylum_Specimen) <- with(Tax_table_strict_2, phylum[match(colnames(phylum_Specimen),rownames(Tax_table_strict_2))])
+
+# Make dataset with main phylum in each individual
+main_phylum_specimen <- as.data.frame(colnames(phylum_Specimen)[apply(phylum_Specimen,1,which.max)])
+rownames(main_phylum_specimen) <- rownames(phylum_Specimen)
+main_phylum_specimen$phylum <- main_phylum_specimen$`colnames(phylum_Specimen)[apply(phylum_Specimen, 1, which.max)]`
+
+# Look at taxa that are the main food source over all individuals
+unique(main_phylum_specimen$phylum)
+
+# Investigate these phyla further
+length(which(main_phylum_specimen$phylum == "Arthropoda"))
+length(which(main_phylum_specimen$phylum == "Bacillariophyta"))
+length(which(main_phylum_specimen$phylum == "Chordata"))
+length(which(main_phylum_specimen$phylum == "Streptophyta"))
+length(which(main_phylum_specimen$phylum == "Chlorophyta"))
+length(which(main_phylum_specimen$phylum == "Cnidaria"))
+length(which(main_phylum_specimen$phylum == "Annelida"))
+length(which(main_phylum_specimen$phylum == "Mollusca"))
+
+# Look at the Frequency of Occurrence (FOO) per specimen
+phylum_Specimen2 <- as.data.frame(t(phylum_Specimen))
+
+# Assign present if more than 0.5 % abundance
+phylum_Specimen2[apply(phylum_Specimen2,2,function(x){x/sum(x)}) >= 0.005] <- 1
+phylum_Specimen2[phylum_Specimen2 > 1] <- 0
+
+# Take the relative FOO over all individuals in this study
+rowSums(phylum_Specimen2)/193
+
+# Take FOO per specimen to put back into PhyloSeq object
+phylum_Specimen0 <- as.data.frame(t(phylum_Specimen0))
+phylum_Specimen0[apply(phylum_Specimen0,2,function(x){x/sum(x)}) >= 0.005] <- 1
+phylum_Specimen0[phylum_Specimen0 > 1] <- 0
+rowSums(phylum_Specimen0)
+
+# Make Phyloseq object with FOO
+physeq_phylum_FOO_Specimen <- physeq_phylum_Specimen
+otu_table(physeq_phylum_FOO_Specimen) <- phyloseq::otu_table(phylum_Specimen0, taxa_are_rows = TRUE)
+sample_data(physeq_phylum_FOO_Specimen)$SpeciesID <- with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_phylum_FOO_Specimen)),all_metadata_2$SpecimenID)])
+
+# Merge specimens with FOO per species by taking sum
+physeq_phylum_FOO_Specimen_spp <- merge_samples(physeq_phylum_FOO_Specimen, "SpeciesID", fun=sum) 
+
+# Extract otu_table
+phylum_Specimen_spp = as(otu_table(physeq_phylum_FOO_Specimen_spp), "matrix")
+
+# rename TaxIDs
+colnames(phylum_Specimen_spp) <- with(Tax_table_strict_2, phylum[match(colnames(phylum_Specimen_spp),rownames(Tax_table_strict_2))])
+
+# Get nr specimens per species to calculate %
+physeq_phylum_FOO_Specimen_sppFreq = as(sample_data(physeq_phylum_FOO_Specimen), "data.frame")
+phylum_specimen_freq <- table(physeq_phylum_FOO_Specimen_sppFreq$SpeciesID)
+
+# Calculate FOO%
+phylum_Specimen_spp_FOOPerc <- t(apply(phylum_Specimen_spp, 2, "/", phylum_specimen_freq))
+
+# Melt FOO% data
+bar_phylum_sp_FOO <- melt(phylum_Specimen_spp_FOOPerc, id.vars = "SpeciesID", variable.name = "Phylum")
+
+# Add metadata
+bar_phylum_sp_FOO$value <- as.numeric(bar_phylum_sp_FOO$value)
+bar_phylum_sp_FOO$Phylum <- factor(bar_phylum_sp_FOO$Var1)
+bar_phylum_sp_FOO$Tribe = with(all_metadata_2, Tribe[match(bar_phylum_sp_FOO$Var2,all_metadata_2$SpeciesID)])
+
+# Make FOO% barplot
+ggplot(data=bar_phylum_sp_FOO,aes(x=Phylum,y=value,fill=Phylum) ) +
+  geom_bar(position="dodge",stat = "identity") +
+  geom_col(color = "black") +
+  ylab("FOO%") +
+  facet_grid(.~Var2, scales = "free", switch = "x", space = "free_x") +
+  facet_wrap(factor(Tribe, level=Tribe_ordering)~factor(Var2, level=Species_ordering),scales = "free",nrow=5) +
+  scale_fill_manual(values=phyla_cols) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.x=element_blank()) 
+
+#####################################
+# Bray-Curtis distances species
+#####################################
+# Take species physeq
+otu_phylum_spp <- as.data.frame(otu_table(physeq_phylum_Specimen_spp_rel))
+
+# Calculate Bray-Curtis distance
+dist.BrCu.spp_phylum<-as.matrix(vegdist(otu_phylum_spp,method="bray"))
+
+# Cluster species based on Ward
+clust.BrCu.spp_phylum<-hclust(vegdist(otu_phylum_spp,method="bray"), method="ward.D") #agglomerative clustering using complete linkage
+
+# Define metadata for heatmap
+df3 <- as.matrix(Metadata_spp)
+df_phylum_spp = data.frame(
+  Tribe = factor(df3[,c("Tribe")])
+)
+heatmap_colour = list(
+  Tribe = tribe_colours)
+
+# Plot heatmap
+pheatmap(1-dist.BrCu.spp_phylum,cluster_cols= clust.BrCu.spp_phylum,cluster_rows= clust.BrCu.spp_phylum,show_rownames=TRUE,show_colnames=T,annotation_col=df_phylum_spp,annotation_row=df_phylum_spp,annotation_colors=heatmap_colour)
+
+################################
+# Transform data DeSeq and vst #
+################################
+# DeSeq2
+# Negative Binomial Method
+library(DESeq2)
+
+# Make dataframes of Phyloseq object with summed samples per individual
+phylum_otu <- as.data.frame(t(otu_table(physeq_phylum_Specimen)+1))
+phylum_sample <- as.data.frame(sample_data(physeq_phylum_Specimen))
+phylum_tax <- as.data.frame(tax_table(physeq_phylum_Specimen))
+
+# Factor sample/metadata
+phylum_sample$SpecimenID<-factor(phylum_sample$SpecimenID)
+phylum_sample$TissueID<-factor(phylum_sample$TissueID)
+phylum_sample$Sex<-factor(phylum_sample$Sex)
+phylum_sample$SpeciesID<-factor(phylum_sample$SpeciesID)
+
+# coldata needs to be ordered same way as counts for deseq
+phylum_sample <- phylum_sample[order(rownames(phylum_sample)),]
+phylum_otu <- phylum_otu[,order(colnames(phylum_otu))]
+
+# Add metadata for DeSeq2
+phylum_sample$SpeciesID = with(all_metadata_2, SpeciesID[match(rownames(phylum_sample),SpecimenID)])
+phylum_sample$Tribe = with(all_metadata_2, Tribe[match(rownames(phylum_sample),SpecimenID)])
+
+# Make a DeSeq object
+dds <- DESeqDataSetFromMatrix(countData=phylum_otu, 
+                              colData=phylum_sample, 
+                              design=~SpeciesID) # Specifies how the counts from each OTU depend on our variables in the metadata, this case SpeciesID
+dds
+
+# Run DeSeq on object 
+dds2 <- DESeq(dds)
+
+# Check results
+res <- results(dds2)
+summary (res)
+
+# LFC: Log Fold Cutoff
+res[order(res$padj),]
+
+# Then we need to transform the raw count data
+# vst function will perform variance stabilizing transformation
+vsdata <- varianceStabilizingTransformation(dds2)
+
+###################
+# Make a PCA graph 
+###################
+# Make count data from normalised data
+bf_pca_phylum <- data.frame(t(assay(vsdata)))
+
+# Calculate PCA
+vsdata_res_phylum <- prcomp((bf_pca_phylum), scale=F)
+
+# Check PCA
+summary(vsdata_res_phylum)
+
+# Add metadata
+bf_pca_phylum$Tribe = with(all_metadata_2, Tribe[match(rownames(bf_pca_phylum),all_metadata_2$SpecimenID)])
+bf_pca_phylum$Sex = with(all_metadata_2, Sex[match(rownames(bf_pca_phylum),all_metadata_2$SpecimenID)])
+bf_pca_phylum$SpeciesID = with(all_metadata_2, SpeciesID[match(rownames(bf_pca_phylum),all_metadata_2$SpecimenID)])
+
+# Make an initial PCA plot with vectors for phyla driving the ordination
+autoplot(vsdata_res_phylum,  data = bf_pca_phylum,colour='Tribe' ,loadings = TRUE, loadings.colour = 'gray24',loadings.label = T,  size=4,scale=F) +
+  coord_fixed() +
+  scale_color_manual(values=tribe_colours) +
+  theme(panel.background = element_rect(fill = "white", colour = "grey50")) +
+  ggtitle("PCA Diet Phylum lvl") +
+  theme(axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 14, vjust = -1, hjust=0.45),
+        axis.title.y = element_text(color = "black", size = 14, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        panel.grid.major = element_blank(),panel.grid.minor = element_blank()) + 
+  theme(aspect.ratio = 1.1)
+
+# Plot PCA without phyla names
+Plot_PCA_vectors <- autoplot(vsdata_res_phylum,  data = bf_pca_phylum,colour='Tribe' ,loadings = TRUE, loadings.colour = 'gray24',loadings.label = F,  size=2,scale=F) +
+  coord_fixed() +
+  scale_color_manual(values=tribe_colours) +
+  theme(panel.background = element_rect(fill = "white", colour = "grey50")) +
+  theme(axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.title = element_text(size=15), 
+        legend.text = element_text(size=12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        plot.margin = unit(c(0.2,0.2,0.5,0.2), "cm")) + 
+  theme(aspect.ratio = 1.1)
+
+Plot_PCA_vectors
+
+############################
+# Make PCA plot per species
+############################
+# Extract PC's from PCA analysis
+vsdata_res_phylum_x <- as.data.frame(vsdata_res_phylum$x)
+
+# Add metadata
+vsdata_res_phylum_x$Tribe = with(all_metadata_2, Tribe[match(rownames(vsdata_res_phylum_x),all_metadata_2$SpecimenID)])
+vsdata_res_phylum_x$Sex = with(all_metadata_2, Sex[match(rownames(vsdata_res_phylum_x),all_metadata_2$SpecimenID)])
+vsdata_res_phylum_x$SpeciesID = with(all_metadata_2, SpeciesID[match(rownames(vsdata_res_phylum_x),all_metadata_2$SpecimenID)])
+
+# Make polygons of PC1 and PC2 per species
+hull_cyl_phylum <- vsdata_res_phylum_x %>%
+  group_by(SpeciesID) %>%
+  dplyr::slice(chull(PC1, PC2))
+hull_cyl_phylum$Tribe = with(all_metadata_2, Tribe[match(hull_cyl_phylum$SpeciesID,all_metadata_2$SpeciesID)])
+
+# Make species list ordered by tribe for loop
+spp <- vsdata_res_phylum_x[order(vsdata_res_phylum_x$Tribe),]
+species <- unique(spp$SpeciesID)
+
+# Define shape for sex
+sex_shapes <- c("F"=25, "M"=24,"NA"=20)
+
+# Loop for polygon in PCA per species
+n <- list()
+for (i in Species_ordering){
+  n[[i]] <- ggplot() +
+    geom_point(data=vsdata_res_phylum_x, aes(PC1, PC2, color = factor(SpeciesID)), size = 1, color="gray90") +
+    coord_fixed() +
+    theme_bw() +  
+    aes(fill = Tribe) +
+    theme(legend.position = "none") + 
+    geom_polygon(data = hull_cyl_phylum[hull_cyl_phylum$SpeciesID == i, ], aes(PC1, PC2,colour=Tribe), alpha = 0.5) +
+    geom_point(data=vsdata_res_phylum_x[vsdata_res_phylum_x$SpeciesID == i, ],aes(PC1, PC2,color=Tribe,shape=Sex), size=2) +
+    scale_fill_manual(values=tribe_colours) +
+    scale_color_manual(values=tribe_colours) +
+    scale_shape_manual(values=sex_shapes) +
+    ggtitle(i) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    theme(axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+}
+
+Plot_pca_perspecies <- grid.arrange(grobs=n,ncol=8)
+
+Plot_pca_perspecies
+
+# Polygon for each species
+ggplot() +
+  geom_polygon(data = hull_cyl_phylum, aes(PC1, PC2,group=factor(SpeciesID)), alpha = 0.5) +
+  coord_fixed() +
+  theme_bw() +  
+  aes(fill = Tribe, color=Tribe) +
+  theme(legend.position = "none") + 
+  scale_fill_manual(values=tribe_colours) +
+  scale_color_manual(values=tribe_colours) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        panel.grid.major = element_blank(),panel.grid.minor = element_blank())
+
+# Make graph with mean and range of each species within the PCA
+pca_graph_mmm <- ddply(vsdata_res_phylum_x, .(SpeciesID), summarize, PCA1_mean=mean(PC1), PCA1_min=min(PC1),PCA1_max=max(PC1),PCA2_mean=mean(PC2), PCA2_min=min(PC2), PCA2_max=max(PC2))
+pca_graph_mmm$Tribe = with(all_metadata_2, Tribe[match(pca_graph_mmm$SpeciesID,SpeciesID)])
+
+# Plot the PCA with species ranges
+Plot_PCA_ranges <- ggplot(pca_graph_mmm, aes(x=PCA1_mean, y=PCA2_mean, color=Tribe)) + 
+  theme_minimal() +
+  geom_point(size=2)+
+  theme_bw() +
+  scale_color_manual(values=tribe_colours) +
+  geom_errorbar(aes(ymin=PCA2_min, ymax=PCA2_max), size=0.4) +
+  geom_errorbarh(aes( xmin=PCA1_min, xmax=PCA1_max), size=0.3) +
+  theme(axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.title = element_text(size=15), 
+        legend.text = element_text(size=12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        plot.margin = unit(c(0.2,0.2,0.5,0.2), "cm")) + 
+  theme(aspect.ratio = 1.1)
+
+Plot_PCA_ranges
+
+# Plot Fig 2, PCA combi
+Plot_PCA_1 <- grid.arrange(Plot_PCA_ranges,Plot_PCA_vectors,nrow=1)
+grid.arrange(Plot_PCA_1,Plot_pca_perspecies,nrow=2,heights=c(2.7, 4))
+
+##########################################
+# Normalise data for comparative analyses
+##########################################
+# Remove Oretan and Astbur since not part of LT adaptive radiation
+OreAst <- rownames(phylum_sample[ phylum_sample$SpeciesID %in% c("Oretan","Astbur"), ])
+
+phylum_sample_noOrAs <- phylum_sample[ ! rownames(phylum_sample) %in% OreAst, ]
+phylum_otu_noOrAs <- phylum_otu[ ,! colnames(phylum_otu) %in% OreAst ]
+
+# Make a DeSeq object
+dds_noOrAs <- DESeqDataSetFromMatrix(countData=phylum_otu_noOrAs, 
+                              colData=phylum_sample_noOrAs, 
+                              design=~SpeciesID)
+
+# Perform DeSeq
+dds2_noOrAs <- DESeq(dds_noOrAs)
+
+# Perform vst
+vsdata_noOrAs <- varianceStabilizingTransformation(dds2_noOrAs)
+
+# Extract normalised count data
+bf_pca_phylum_noOrAs <- data.frame(t(assay(vsdata_noOrAs)))
+
+# Perform PCA analysis
+vsdata_res_phylum_noOrAs <- prcomp((bf_pca_phylum_noOrAs), scale=F)
+
+# Add metadata
+bf_pca_phylum_noOrAs$Tribe = with(all_metadata_2, Tribe[match(rownames(bf_pca_phylum_noOrAs),all_metadata_2$SpecimenID)])
+bf_pca_phylum_noOrAs$Sex = with(all_metadata_2, Sex[match(rownames(bf_pca_phylum_noOrAs),all_metadata_2$SpecimenID)])
+bf_pca_phylum_noOrAs$SpeciesID = with(all_metadata_2, SpeciesID[match(rownames(bf_pca_phylum_noOrAs),all_metadata_2$SpecimenID)])
+
+# Make PCA plot
+autoplot(vsdata_res_phylum_noOrAs,  data = bf_pca_phylum_noOrAs,colour='Tribe' ,loadings = F,  size=4,scale=F) +
+  coord_fixed() +
+  scale_color_manual(values=tribe_colours) +
+  theme(panel.background = element_rect(fill = "white", colour = "grey50")) +
+  ggtitle("PCA Diet Phylum lvl") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(aspect.ratio = 1.5)
+
+# Extract PCA
+vsdata_res_phylum_x_noOrAs <- as.data.frame(vsdata_res_phylum_noOrAs$x)
+vsdata_res_phylum_x_noOrAs$SpeciesID = with(all_metadata_2, SpeciesID[match(rownames(vsdata_res_phylum_x_noOrAs),all_metadata_2$SpecimenID)])
+
+# Make PCA dataframe with species means PC1 and PC2
+pca_graph <- ddply(vsdata_res_phylum_x_noOrAs, .(SpeciesID), summarize, PCA1_mean=mean(PC1), PCA1_min=min(PC1),PCA1_max=max(PC1),PCA2_mean=mean(PC2), PCA2_min=min(PC2), PCA2_max=max(PC2))
+
+# Add species means of other metadata
+pca_graph$d15N_mean = with(all_metadata_2, d15N_mean[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$d15N_std_dev = with(all_metadata_2, d15N_std_dev[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$d13C_mean = with(all_metadata_2, d13C_mean[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$d13C_std_dev = with(all_metadata_2, d13C_std_dev[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$Tribe = with(all_metadata_2, Tribe[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$FoodCat = with(all_metadata_2, FoodCat[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$LPJ_PC1_mean = with(LPJ_vars, LPJ_PC1_mean[match(pca_graph$SpeciesID,sp)])
+pca_graph$LPJ_PC1_std_dev = with(LPJ_vars, LPJ_PC1_std_dev[match(pca_graph$SpeciesID,sp)])
+pca_graph$LPJ_PC2_mean = with(LPJ_vars, LPJ_PC2_mean[match(pca_graph$SpeciesID,sp)])
+pca_graph$LPJ_PC2_std_dev = with(LPJ_vars, LPJ_PC2_std_dev[match(pca_graph$SpeciesID,sp)])
+pca_graph$UOJ_PC1_mean = with(UOJ_vars, UOJ_PC1_mean[match(pca_graph$SpeciesID,sp)])
+pca_graph$UOJ_PC1_std_dev = with(UOJ_vars, UOJ_PC1_std_dev[match(pca_graph$SpeciesID,sp)])
+pca_graph$UOJ_PC2_mean = with(UOJ_vars, UOJ_PC2_mean[match(pca_graph$SpeciesID,sp)])
+pca_graph$UOJ_PC2_std_dev = with(UOJ_vars, UOJ_PC2_std_dev[match(pca_graph$SpeciesID,sp)])
+pca_graph$SpeciesID = with(all_metadata_2, SpeciesID[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$BDY_PC1_mean = with(BDY_vars, BDY_PC1_mean[match(pca_graph$SpeciesID,sp)])
+pca_graph$BDY_PC1_std_dev = with(BDY_vars, BDY_PC1_std_dev[match(pca_graph$SpeciesID,sp)])
+pca_graph$BDY_PC2_mean = with(BDY_vars, BDY_PC2_mean[match(pca_graph$SpeciesID,sp)])
+pca_graph$BDY_PC2_std_dev = with(BDY_vars, BDY_PC2_std_dev[match(pca_graph$SpeciesID,sp)])
+pca_graph$SL_mean = with(SL_vars, SL_mean[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$SL_std_dev = with(SL_vars, SL_std_dev[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$Weight_mean = with(Weigth_vars, Weight_mean[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$ZHL_mean_CETH = with(ZHL_vars_CETH, ZHL_mean[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$ZHL_std_dev_CETH = with(ZHL_vars_CETH, ZHL_std_dev[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$RGL_mean_CETH = with(RGL_vars_CETH, RGL_mean[match(pca_graph$SpeciesID,SpeciesID)])
+pca_graph$RGL_std_dev_CETH = with(RGL_vars_CETH, RGL_std_dev[match(pca_graph$SpeciesID,SpeciesID)])
+
+#####################################
+# Make species PC vs metadata plots 
+#####################################
+# Compare PCA axes with other species variables
+# Make list of variables to compare to PC1 and PC2
+pc_vars <- c("d15N_mean","d13C_mean","LPJ_PC1_mean","LPJ_PC2_mean","UOJ_PC1_mean","UOJ_PC2_mean","BDY_PC1_mean","BDY_PC2_mean","ZHL_mean_CETH","RGL_mean_CETH","SL_mean","Weight_mean")
+
+# Make loop for PC1 vs metadata
+n_pc1 <- list()
+for (i in pc_vars){
+  n_pc1[[i]] = ggplot(data = pca_graph, aes_string(x="PCA1_mean", y=i, color="Tribe"))+ # aes_string because of string variable i
+      geom_point() + 
+      theme_bw() +
+      xlab("PC1 (37.56%)") +
+      scale_color_manual(values=tribe_colours) +
+      theme(legend.position = "none") + 
+      theme(axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+            axis.text.y = element_text(color = "black", size = 11),  
+            axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+            axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+            legend.title = element_text(size=15), legend.text = element_text(size=12),
+            panel.grid.major = element_blank(),panel.grid.minor = element_blank()) +
+    stat_smooth(method = "lm", col = "darkgrey") 
+}
+
+grid.arrange(grobs=n_pc1,ncol=4)
+
+# Make loop for PC2 vs metadata
+n_pc2 <- list()
+for (i in pc_vars){
+  n_pc2[[i]] = ggplot(data = pca_graph, aes_string(x="PCA2_mean", y=i, color="Tribe"))+
+    geom_point() +
+    theme_bw() +
+    xlab("PC2 (15.84%)") +
+    scale_color_manual(values=tribe_colours) +
+    theme(legend.position = "none") + 
+    theme(axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+          axis.text.y = element_text(color = "black", size = 11),  
+          axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+          axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+          legend.title = element_text(size=15), legend.text = element_text(size=12),
+          panel.grid.major = element_blank(),panel.grid.minor = element_blank()) +
+    stat_smooth(method = "lm", col = "darkgrey") 
+}
+
+grid.arrange(grobs=n_pc2,ncol=4)
+
+###################################
+# pGLS of PCA and species metadata
+###################################
+# pgls taking into account phylogeny
+library(caper)
+
+# Do this to avoid abnormal error for BDY_PC2 and PC1: 52ERROR: ABNORMAL_TERMINATION_IN_LNSRCH
+pca_graph0 <- pca_graph
+pca_graph0$BDY_PC2_mean <- pca_graph0$BDY_PC2_mean*10
+
+# Then create comparative dataset of species
+compset = comparative.data(pruned.tree, pca_graph0, SpeciesID)
+
+# Look at pgls results for PCA vs metadata
+# Each time trait as a result of diet, in this order
+print(summary(pgls(d15N_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(d15N_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(d13C_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(d13C_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(LPJ_PC1_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(LPJ_PC1_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(LPJ_PC2_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(LPJ_PC2_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(UOJ_PC1_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(UOJ_PC1_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(UOJ_PC2_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(UOJ_PC2_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(BDY_PC1_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(BDY_PC1_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(BDY_PC2_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(BDY_PC2_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(ZHL_mean_CETH ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(ZHL_mean_CETH ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(RGL_mean_CETH ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(RGL_mean_CETH ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(SL_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(SL_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+print(summary(pgls(Weight_mean ~ PCA1_mean, compset, lambda= 'ML')))
+print(summary(pgls(Weight_mean ~ PCA2_mean, compset, lambda= 'ML')))
+
+##################################
+# Normalise species data for PLS 
+##################################
+# Do transformations of species together
+physeq_phylum_Specimen_spp_rel
+
+# Make dataframes out of Physeq
+phylum_otu_spp <- as.data.frame(t(otu_table(physeq_phylum_Specimen_spp_rel))+1)
+phylum_sample_spp <- as.data.frame(t(sample_data(physeq_phylum_Specimen_spp_rel)))
+
+# Remove Oretan and Astbur from comparative analysis
+phylum_otu_spp <- phylum_otu_spp[ ! colnames(phylum_otu_spp) %in% c("Oretan","Astbur")]
+phylum_sample_spp <- phylum_sample_spp[ ! colnames(phylum_sample_spp) %in% c("Oretan","Astbur")]
+phylum_sample_spp <- as.data.frame(t(phylum_sample_spp))
+
+# Order the two datasets similarly
+phylum_sample_spp <- phylum_sample_spp[order(rownames(phylum_sample_spp)),]
+phylum_otu_spp <- phylum_otu_spp[,order(colnames(phylum_otu_spp))]
+
+# Need integers for DESeq
+phylum_otu_spp <- round(phylum_otu_spp, digits = 0)
+
+# Add tribe
+phylum_sample_spp$Tribe <- as.factor(phylum_sample_spp$Tribe)
+
+# Make DESeq object
+dds_spp <- DESeqDataSetFromMatrix(countData=phylum_otu_spp, 
+                                           colData=phylum_sample_spp, 
+                                           design=~Tribe)
+
+# Perform DESeq
+dds2_spp <- DESeq(dds_spp)
+
+# Do vst
+vsdata_spp <- varianceStabilizingTransformation(dds2_spp)
+
+# Make matrix
+pls_diet <- as.matrix(t(assay(vsdata_spp)))
+
+# Replace colnames by diet phylum
+colnames(pls_diet) <- with(Tax_table_strict_2, phylum[match(colnames(pls_diet),rownames(Tax_table_strict_2))])
+pls_diet <- as.matrix(pls_diet)
+
+
+
+#########################
+# two Block PLS Isotopes
+#########################
+# Make matrix
+pls_diet_iso <- as.matrix(t(assay(vsdata_spp)))
+
+# Replace colnames by diet phylum
+colnames(pls_diet_iso) <- with(Tax_table_strict_2, phylum[match(colnames(pls_diet_iso),rownames(Tax_table_strict_2))])
+pls_diet_iso <- as.matrix(pls_diet_iso)
+
+# Get isotope means
+iso_subset <- pca_graph[c("SpeciesID", "d15N_mean", "d13C_mean" )]
+rownames(iso_subset) <- iso_subset$SpeciesID
+iso_subset <- iso_subset[c( "d15N_mean", "d13C_mean" )]
+
+# Scale isotopes to eachother
+pls_iso <- scale(iso_subset)
+
+# Order in the same way
+pls_diet_iso <- pls_diet_iso[match(rownames(pls_iso), rownames(pls_diet_iso)),]
+all(rownames(pls_iso) == rownames(pls_diet_iso))
+
+# Run 2-block PLS
+library(geomorph)
+f_iso = two.b.pls(pls_diet_iso, pls_iso) 
+
+# Plot
+plot(f_iso)
+
+# Summary
+summary(f_iso)
+
+# Check loading of the projections
+f_iso$left.pls.vectors
+f_iso$right.pls.vectors
+
+# Get projected scores
+f1_iso= data.frame( "XScores"=f_iso$ XScores[,1], "YScores"=f_iso$ YScores[,1])
+f1_iso$Tribe = with(all_metadata_2, Tribe[match(rownames(f1_iso),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1_iso$YScores ~ f1_iso$XScores))
+
+# pGLS
+f1_iso$SpeciesID <- rownames(f1_iso)
+compset_iso = comparative.data(pruned.tree, f1_iso, SpeciesID)
+
+# Look at pgls results for PCA vs metadata
+# YScores need to be before XScores
+print(summary(pgls(YScores ~ XScores, compset_iso, lambda= 'ML')))
+
+# Plot PLS
+plot_pls_iso <- ggplot(data = f1_iso, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("Stable isotope projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+########################################
+# two Block PLS Isotopes with phylogeny
+########################################
+# Remove Orenil and Astbur from phylogeny
+pruned.tree_noOrAs = drop.tip(pruned.tree, pruned.tree$tip.label[-which(pruned.tree$tip.label %in% rownames(pls_diet))])
+
+# Order datasets by phylogeny
+pls_diet_ord_iso <- pls_diet_iso[ match(pruned.tree_noOrAs$tip.label, rownames(pls_diet_iso)),]
+pls_ord_iso <- pls_iso[ match(pruned.tree_noOrAs$tip.label, rownames(pls_iso)),]
+
+# Check
+all(pruned.tree_noOrAs$tip.label == rownames(pls_diet_ord_iso)) 
+all(pruned.tree_noOrAs$tip.label == rownames(pls_ord_iso))
+
+# Do PLS
+fp_iso = phylo.integration(  A = pls_diet_ord_iso,  A2 = pls_ord_iso,  phy = pruned.tree_noOrAs  )
+
+# Plot PLS
+plot(fp_iso)
+
+# Summary
+summary(fp_iso)
+
+# Check loading of the projections
+fp_iso$left.pls.vectors
+fp_iso$right.pls.vectors
+
+# Get projected scores
+f1p_iso= data.frame( "XScores"=fp_iso$ XScores[,1], "YScores"=fp_iso$ YScores[,1])
+f1p_iso$Tribe = with(all_metadata_2, Tribe[match(rownames(f1p_iso),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1p_iso$YScores ~ f1p_iso$XScores))
+
+# plot
+plot_pls_phy_iso <- ggplot(data = f1p_iso, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("Stable isotope projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+####################
+# two Block pls BDY
+####################
+# Load body shape data by Ronco et al
+load("body_shape_ProcAligned_landmarks_species_means_focal_species.RData")
+pls_bdy <- sp_means_body_subset
+
+# Remove Astbur
+pls_bdy <- pls_bdy[ ,, dimnames(pls_bdy)[[3]] != "Astbur" ]
+head(sp_means_body_subset)
+
+# Order in the same way
+pls_diet <- pls_diet[match(dimnames(pls_bdy)[[3]], rownames(pls_diet)),]
+all(dimnames(pls_bdy)[[3]] == rownames(pls_diet))
+
+# Run 2-block PLS
+f = two.b.pls(pls_diet, pls_bdy) 
+
+# Plot
+P = plot(f)
+P
+
+# Summary
+summary(f)
+
+# Check loading of the projections
+f$left.pls.vectors
+f$right.pls.vectors
+
+# Get projected scores
+f1= data.frame( "XScores"=f$ XScores[,1], "YScores"=f$ YScores[,1])
+f1$Tribe = with(all_metadata_2, Tribe[match(rownames(f1),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1$YScores ~ f1$XScores))
+
+# pGLS
+f1$SpeciesID <- rownames(f1)
+compset_bdy = comparative.data(pruned.tree, f1, SpeciesID)
+
+# Look at pgls results for PCA vs metadata
+print(summary(pgls(YScores ~ XScores , compset_bdy, lambda= 'ML')))
+
+# Visualize shape at minimum and maximum PLS scores.
+minx <- min(P$plot_args$y)
+maxx <- max(P$plot_args$y)
+preds <- shape.predictor(P$A2, 
+                         x = P$plot.args$y,
+                         min = minx, max = maxx)
+
+# Plot shape
+plotRefToTarget(mshape(P$A2), preds$min)
+plotRefToTarget(mshape(P$A2), preds$max)
+
+# Define shapes
+minshape = preds$min
+maxshape = preds$max
+
+#######################
+# plot BDY 2-block PLS
+#######################
+# Plot PLS
+plot_pls_bdy <- ggplot(data = f1, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("body shape projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+# outlines to draw the shapes
+outline1 = c(16,17,18,19,16)
+outline2 = c(1,2,3,4,5,6,8,9,11,12,15,1)
+outline3 = c(14,10,7)
+
+# Plot the max shape
+plot(maxshape[,1], maxshape[,2], xlim=c(-0.4,0.4), ylim=c(-0.4,0.4), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+polygon(maxshape[c(outline1),],lwd=4)
+lines(maxshape[c(outline2),],lwd=4)
+lines(maxshape[c(outline3),],lwd=4)
+
+# Plot min shape
+plot(minshape[,1],minshape[,2], xlim=c(-0.4,0.4), ylim=c(-0.4,0.4), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+polygon(minshape[c(outline1),],lwd=4)
+lines(minshape[c(outline2),],lwd=4)
+lines(minshape[c(outline3),],lwd=4)
+
+############################
+# 2-block PLS BDY Phylogeny
+############################
+# Account in PLS for phylogeny
+# Order other comparative datasets by order of tree tips
+pls_diet_ord <- pls_diet[ match(pruned.tree_noOrAs$tip.label, rownames(pls_diet)),]
+pls_bdy_ord <- pls_bdy[,, match(pruned.tree_noOrAs$tip.label, dimnames(pls_bdy)[[3]])]
+
+# Check if right order
+all(pruned.tree_noOrAs$tip.label == rownames(pls_diet_ord)) 
+all(pruned.tree_noOrAs$tip.label == dimnames(pls_bdy_ord)[[3]])
+
+# Perform PLS analysis
+fp = phylo.integration(  A = pls_diet_ord,  A2 = pls_bdy_ord,  phy = pruned.tree_noOrAs  )
+
+# Plot PLS
+Pp = plot(fp)
+Pp
+
+# Summary PLS
+summary(fp)
+
+# Check loading of the projections
+fp$left.pls.vectors
+
+# Make dataframe of scores and add tribe
+f1p= data.frame( "XScores"=fp$ XScores[,1], "YScores"=fp$ YScores[,1])
+f1p$Tribe = with(all_metadata_2, Tribe[match(rownames(f1p),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1p$YScores ~ f1p$XScores))
+
+# Define min and max shapes
+minxp <- min(Pp$plot_args$y)
+maxxp <- max(Pp$plot_args$y)
+predsp <- shape.predictor(Pp$A2, 
+                         x = Pp$plot.args$y,
+                         min = minxp, max = maxxp)
+plotRefToTarget(mshape(Pp$A2), predsp$min)
+plotRefToTarget(mshape(Pp$A2), predsp$max)
+minshapep = predsp$min
+maxshapep = predsp$max
+
+# Plot PLS
+plot_pls_phy_bdy <- ggplot(data = f1p, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("body shape projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+# outlines to draw the shapes
+outline1 = c(16,17,18,19,16)
+outline2 = c(1,2,3,4,5,6,8,9,11,12,15,1)
+outline3 = c(14,10,7)
+
+# Plot max shape
+plot(maxshapep[,1], maxshapep[,2], xlim=c(-0.4,0.4), ylim=c(-0.4,0.4), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+polygon(maxshapep[c(outline1),],lwd=4)
+lines(maxshapep[c(outline2),],lwd=4)
+lines(maxshapep[c(outline3),],lwd=4)
+
+# Plot min shape
+plot(minshapep[,1],minshapep[,2], xlim=c(-0.4,0.4), ylim=c(-0.4,0.4), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+polygon(minshapep[c(outline1),],lwd=4)
+lines(minshapep[c(outline2),],lwd=4)
+lines(minshapep[c(outline3),],lwd=4)
+
+####################
+# two Block pls UOJ
+####################
+# Make matrix
+pls_diet_uoj <- as.matrix(t(assay(vsdata_spp)))
+
+# Replace colnames by diet phylum
+colnames(pls_diet_uoj) <- with(Tax_table_strict_2, phylum[match(colnames(pls_diet_uoj),rownames(Tax_table_strict_2))])
+pls_diet_uoj <- as.matrix(pls_diet_uoj)
+
+# Load data Ronco et al
+load("OJ_shape_ProcAligned_landmarks_species_means_focal_species.RData")
+pls_uoj <- sp_means_OJ
+
+# Remove Astbur
+pls_uoj <- pls_uoj[ ,, dimnames(pls_uoj)[[3]] != "Astbur" ]
+
+# Order in the same way
+pls_diet_uoj <- pls_diet_uoj[match(dimnames(pls_uoj)[[3]], rownames(pls_diet_uoj)),]
+all(dimnames(pls_uoj)[[3]] == rownames(pls_diet_uoj))
+
+# Run 2-block PLS
+library(geomorph)
+f_uoj = two.b.pls(pls_diet_uoj, pls_uoj) 
+
+# Plot PLS
+P_uoj = plot(f_uoj)
+P_uoj
+
+# Summary
+summary(f_uoj)
+
+# check loading of the projections
+f_uoj$left.pls.vectors
+f_uoj$right.pls.vectors
+
+# Get projected scores
+f1_uoj= data.frame( "XScores"=f_uoj$ XScores[,1], "YScores"=f_uoj$ YScores[,1])
+f1_uoj$Tribe = with(all_metadata_2, Tribe[match(rownames(f1_uoj),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1_uoj$YScores ~ f1_uoj$XScores))
+
+# pGLS
+f1_uoj$SpeciesID <- rownames(f1_uoj)
+compset_uoj = comparative.data(pruned.tree, f1_uoj, SpeciesID)
+
+# Look at pgls results for PCA vs metadata
+print(summary(pgls(YScores ~ XScores , compset_uoj, lambda= 'ML')))
+
+# Visualize shape at minimum and maximum PLS scores.
+minx_uoj <- min(P_uoj$plot_args$y)
+maxx_uoj <- max(P_uoj$plot_args$y)
+preds_uoj <- shape.predictor(P_uoj$A2, 
+                         x = P_uoj$plot.args$y,
+                         min = minx_uoj, max = maxx_uoj)
+plotRefToTarget(mshape(P_uoj$A2), preds_uoj$min)
+plotRefToTarget(mshape(P_uoj$A2), preds_uoj$max)
+minshape_uoj = preds_uoj$min
+maxshape_uoj = preds_uoj$max
+
+# Plot PLS
+plot_pls_uoj <-ggplot(data = f1_uoj, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("upper oral jaw shape projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+# Plot min shape
+plot(maxshape_uoj[,1],maxshape_uoj[,2], xlim=c(-0.1,0.1), ylim=c(-0.1,0.1), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+lines(maxshape_uoj[c(3,1,4,2),],lwd=4)
+
+# Plot min shape
+plot(minshape_uoj[,1],minshape_uoj[,2], xlim=c(-0.1,0.1), ylim=c(-0.1,0.1), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+lines(minshape_uoj[c(3,1,4,2),],lwd=4)
+
+##############################
+# two Block pls UOJ Phylogeny
+##############################
+# Order by phylogenetic tree
+pls_diet_ord_uoj <- pls_diet_uoj[ match(pruned.tree_noOrAs$tip.label, rownames(pls_diet_uoj)),]
+pls_bdy_ord_uoj <- pls_uoj[,, match(pruned.tree_noOrAs$tip.label, dimnames(pls_uoj)[[3]])]
+
+# Check
+all(pruned.tree_noOrAs$tip.label == rownames(pls_diet_ord_uoj)) 
+all(pruned.tree_noOrAs$tip.label == dimnames(pls_bdy_ord_uoj)[[3]])
+
+# Do PLS
+fp_uoj = phylo.integration(  A = pls_diet_ord_uoj,  A2 = pls_bdy_ord_uoj,  phy = pruned.tree_noOrAs  )
+
+# Plot PLS
+Pp_uoj = plot(fp_uoj)
+Pp_uoj
+
+# Summary
+summary(fp_uoj)
+
+# Check loading of the projections
+fp_uoj$left.pls.vectors
+fp_uoj$right.pls.vectors
+
+# Get projected scores
+f1p_uoj= data.frame( "XScores"=fp_uoj$ XScores[,1], "YScores"=fp_uoj$ YScores[,1])
+f1p_uoj$Tribe = with(all_metadata_2, Tribe[match(rownames(f1p_uoj),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1p_uoj$YScores ~ f1p_uoj$XScores))
+
+# Visualize shape at minimum and maximum PLS scores.
+minxp_uoj <- min(Pp_uoj$plot_args$y)
+maxxp_uoj <- max(Pp_uoj$plot_args$y)
+predsp_uoj <- shape.predictor(Pp_uoj$A2, 
+                             x = Pp_uoj$plot.args$y,
+                             min = minxp_uoj, max = maxxp_uoj)
+plotRefToTarget(mshape(Pp_uoj$A2), predsp_uoj$min)
+plotRefToTarget(mshape(Pp_uoj$A2), predsp_uoj$max)
+minshapep_uoj = predsp_uoj$min
+maxshapep_uoj = predsp_uoj$max
+
+# Plot PLS
+plot_pls_phy_uoj <- ggplot(data = f1p_uoj, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("upper oral jaw shape projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+# Plot min shape
+plot(maxshapep_uoj[,1],maxshapep_uoj[,2], xlim=c(-0.1,0.1), ylim=c(-0.1,0.1), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+lines(maxshapep_uoj[c(3,1,4,2),],lwd=4)
+
+# Plot min shape
+plot(minshapep_uoj[,1],minshapep_uoj[,2], xlim=c(-0.1,0.1), ylim=c(-0.1,0.1), pch=16, cex=0.3, axes=F, xlab="", ylab="", asp=1)
+lines(minshapep_uoj[c(3,1,4,2),],lwd=4)
+
+####################
+# two Block pls LPJ
+####################
+# Make matrix
+pls_diet_lpj <- as.matrix(t(assay(vsdata_spp)))
+
+# Replace colnames by diet phylum
+colnames(pls_diet_lpj) <- with(Tax_table_strict_2, phylum[match(colnames(pls_diet_lpj),rownames(Tax_table_strict_2))])
+pls_diet_lpj <- as.matrix(pls_diet_lpj)
+
+# Load data Ronco et al
+load("sp_means_LPJ.Rdata")
+pls_lpj <- sp_means_LPJ
+
+# Remove Astbur
+pls_lpj <- pls_lpj[ ,, dimnames(pls_lpj)[[3]] %in%  rownames(pls_diet_lpj)]
+
+# Order in the same way
+pls_diet_lpj <- pls_diet_lpj[match(dimnames(pls_lpj)[[3]], rownames(pls_diet_lpj)),]
+all(dimnames(pls_lpj)[[3]] == rownames(pls_diet_lpj))
+
+# Run 2-block PLS
+library(geomorph)
+f_lpj = two.b.pls(pls_diet_lpj, pls_lpj) 
+
+# Plot PLS
+P_lpj = plot(f_lpj)
+P_lpj
+
+# Summary
+summary(f_lpj)
+
+# Check loading of the projections
+f_lpj$left.pls.vectors
+f_lpj$right.pls.vectors
+
+# Get projected scores
+f1_lpj= data.frame( "XScores"=f_lpj$ XScores[,1], "YScores"=f_lpj$ YScores[,1])
+f1_lpj$Tribe = with(all_metadata_2, Tribe[match(rownames(f1_lpj),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1_lpj$YScores ~ f1_lpj$XScores))
+
+# pGLS
+f1_lpj$SpeciesID <- rownames(f1_lpj)
+compset_lpj = comparative.data(pruned.tree, f1_lpj, SpeciesID)
+
+# Look at pgls results for PCA vs metadata
+print(summary(pgls(YScores ~ XScores , compset_lpj, lambda= 'ML')))
+
+# Visualize shape at minimum and maximum PLS scores
+minx_lpj <- min(P_lpj$plot_args$y)
+maxx_lpj <- max(P_lpj$plot_args$y)
+preds_lpj <- shape.predictor(P_lpj$A2, 
+                             x = P_lpj$plot.args$y,
+                             min = minx_lpj, max = maxx_lpj)
+plotRefToTarget(mshape(P_lpj$A2), preds_lpj$min)
+plotRefToTarget(mshape(P_lpj$A2), preds_lpj$max)
+minshape_lpj = preds_lpj$min
+maxshape_lpj = preds_lpj$max
+
+# Plot PLS
+plot_pls_lpj <-ggplot(data = f1_lpj, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("lower pharyngeal jaw shape projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+# Outlines for shapes
+outline1_lpj=c(1,12,11,13,10,14,9,15,8,3,23,24,25,5,6,7,22,16,21,17,20,18,19,1)
+outline2_lpj=c(1,19,18,20,17,21,16,22,7,6,5,25,24,23,3,39,40,41,29,30,31,38,32,37,33,36,34,35,1)
+outline3_lpj=c(1,12,11,13,10,14,9,15,8,3)
+
+# Plot max shape
+par(mar = c(0,0,0,0))
+plot(maxshape_lpj[c(1:27),1], -1* maxshape_lpj[c(1:27),3], xlim=c(-0.25,0.75), ylim=c(-0.5,0.5), pch=16, type="n", axes=F, xlab="", ylab="",asp=1)
+polygon(maxshape_lpj[c(outline1_lpj),1]  +0.5 , -1* maxshape_lpj[c(outline1_lpj),3]  +0.1 ,lwd=4)
+segments(maxshape_lpj[15,1]  +0.5 ,-1* maxshape_lpj[15,3]  +0.1 , maxshape_lpj[26,1]  +0.5 , -1* maxshape_lpj[26,3]  +0.1 ,lwd=4)
+segments(maxshape_lpj[7,1]  +0.5 ,-1* maxshape_lpj[7,3]  +0.1 , maxshape_lpj[26,1]  +0.5 ,  -1* maxshape_lpj[26,3]  +0.1 ,lwd=4)
+polygon(maxshape_lpj[c(4,2,27),1]  +0.5 , -1* maxshape_lpj[c(4,2,27),3]  +0.1, col= rgb(0.51,0.5,0.5,alpha=0.2) ,lwd=4)
+
+lines( y= maxshape_lpj[outline3_lpj,1],-1* maxshape_lpj[outline3_lpj,2], col="grey",lwd=4)
+segments( y0= maxshape_lpj[15,1],-1* maxshape_lpj[15,2],  y1= maxshape_lpj[26,1],  -1* maxshape_lpj[26,2], col="grey",lwd=4)
+segments( y0= maxshape_lpj[7,1],-1* maxshape_lpj[7,2],  y1=  maxshape_lpj[26,1],  -1* maxshape_lpj[26,2], col="grey",lwd=4)
+segments( y0= maxshape_lpj[42,1],-1* maxshape_lpj[42,2],   y1= maxshape_lpj[15,1],  -1* maxshape_lpj[15,2], col="grey",lwd=4)
+segments( y0= maxshape_lpj[42,1],-1* maxshape_lpj[42,2],   y1= maxshape_lpj[31,1],  -1* maxshape_lpj[31,2], col="grey",lwd=4)
+polygon( y= maxshape_lpj[c(outline2_lpj),1], -1* maxshape_lpj[c(outline2_lpj),2],lwd=4)
+polygon( y= maxshape_lpj[c(4,2,28,27),1], -1* maxshape_lpj[c(4,2,28,27),2], col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+polygon(maxshape_lpj[c(outline2_lpj),2]  +0.5 , -1* maxshape_lpj[c(outline2_lpj),3]  -0.1 ,lwd=4)
+lines(maxshape_lpj[outline3_lpj,2]  +0.5 ,-1* maxshape_lpj[outline3_lpj,3]  -0.1 , col="black",lwd=4)
+segments(maxshape_lpj[15,2]  +0.5 ,-1* maxshape_lpj[15,3]  -0.1 , maxshape_lpj[26,2]  +0.5 ,  -1* maxshape_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(maxshape_lpj[7,2]  +0.5 ,-1* maxshape_lpj[7,3]  -0.1 , maxshape_lpj[26,2]  +0.5 ,  -1* maxshape_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(maxshape_lpj[42,2]  +0.5 ,-1* maxshape_lpj[42,3]  -0.1 , maxshape_lpj[15,2]  +0.5 ,  -1* maxshape_lpj[15,3]  -0.1 , col="black",lwd=4)
+segments(maxshape_lpj[42,2]  +0.5 ,-1* maxshape_lpj[42,3]  -0.1 , maxshape_lpj[31,2]  +0.5 ,  -1* maxshape_lpj[31,3]  -0.1 , col="black",lwd=4)
+polygon(maxshape_lpj[c(4,2,28,27),2]+0.5, -1* maxshape_lpj[c(4,2,28,27),3] -0.1, col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+# Plot min shape
+par(mar = c(0,0,0,0))
+plot(minshape_lpj[c(1:27),1], -1* minshape_lpj[c(1:27),3], xlim=c(-0.25,0.75), ylim=c(-0.5,0.5), pch=16, col="white", axes=F, xlab="", ylab="", asp=1)
+polygon(minshape_lpj[c(outline1_lpj),1]  +0.5 , -1* minshape_lpj[c(outline1_lpj),3]  +0.1 ,lwd=4)
+segments(minshape_lpj[15,1]  +0.5 ,-1* minshape_lpj[15,3]  +0.1 , minshape_lpj[26,1]  +0.5 , -1* minshape_lpj[26,3]  +0.1 ,lwd=4)
+segments(minshape_lpj[7,1]  +0.5 ,-1* minshape_lpj[7,3]  +0.1 , minshape_lpj[26,1]  +0.5 ,  -1* minshape_lpj[26,3]  +0.1 ,lwd=4)
+polygon(minshape_lpj[c(4,2,27),1]  +0.5 , -1* minshape_lpj[c(4,2,27),3]  +0.1, col= rgb(0.51,0.5,0.5,alpha=0.2) ,lwd=4)
+
+lines( y= minshape_lpj[outline3_lpj,1],-1* minshape_lpj[outline3_lpj,2], col="grey",lwd=4)
+segments( y0= minshape_lpj[15,1],-1* minshape_lpj[15,2],  y1= minshape_lpj[26,1],  -1* minshape_lpj[26,2], col="grey",lwd=4)
+segments( y0= minshape_lpj[7,1],-1* minshape_lpj[7,2],  y1=  minshape_lpj[26,1],  -1* minshape_lpj[26,2], col="grey",lwd=4)
+segments( y0= minshape_lpj[42,1],-1* minshape_lpj[42,2],   y1= minshape_lpj[15,1],  -1* minshape_lpj[15,2], col="grey",lwd=4)
+segments( y0= minshape_lpj[42,1],-1* minshape_lpj[42,2],   y1= minshape_lpj[31,1],  -1* minshape_lpj[31,2], col="grey",lwd=4)
+polygon( y= minshape_lpj[c(outline2_lpj),1], -1* minshape_lpj[c(outline2_lpj),2],lwd=4)
+polygon( y= minshape_lpj[c(4,2,28,27),1], -1* minshape_lpj[c(4,2,28,27),2], col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+polygon(minshape_lpj[c(outline2_lpj),2]  +0.5 , -1* minshape_lpj[c(outline2_lpj),3]  -0.1 ,lwd=4)
+lines(minshape_lpj[outline3_lpj,2]  +0.5 ,-1* minshape_lpj[outline3_lpj,3]  -0.1 , col="black",lwd=4)
+segments(minshape_lpj[15,2]  +0.5 ,-1* minshape_lpj[15,3]  -0.1 , minshape_lpj[26,2]  +0.5 ,  -1* minshape_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(minshape_lpj[7,2]  +0.5 ,-1* minshape_lpj[7,3]  -0.1 , minshape_lpj[26,2]  +0.5 ,  -1* minshape_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(minshape_lpj[42,2]  +0.5 ,-1* minshape_lpj[42,3]  -0.1 , minshape_lpj[15,2]  +0.5 ,  -1* minshape_lpj[15,3]  -0.1 , col="black",lwd=4)
+segments(minshape_lpj[42,2]  +0.5 ,-1* minshape_lpj[42,3]  -0.1 , minshape_lpj[31,2]  +0.5 ,  -1* minshape_lpj[31,3]  -0.1 , col="black",lwd=4)
+polygon(minshape_lpj[c(4,2,28,27),2]+0.5, -1* minshape_lpj[c(4,2,28,27),3] -0.1, col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+###################################
+# two Block pls LPJ with phylogeny
+###################################
+# Order by phylogenetric tree
+pls_diet_ord_lpj <- pls_diet_lpj[ match(pruned.tree_noOrAs$tip.label, rownames(pls_diet_lpj)),]
+pls_bdy_ord_lpj <- pls_lpj[,, match(pruned.tree_noOrAs$tip.label, dimnames(pls_lpj)[[3]])]
+
+# Check
+all(pruned.tree_noOrAs$tip.label == rownames(pls_diet_ord_lpj)) 
+all(pruned.tree_noOrAs$tip.label == dimnames(pls_bdy_ord_lpj)[[3]])
+
+# Perform PLS
+fp_lpj = phylo.integration(  A = pls_diet_ord_lpj,  A2 = pls_bdy_ord_lpj,  phy = pruned.tree_noOrAs  )
+
+# Plot
+Pp_lpj = plot(fp_lpj)
+Pp_lpj
+
+# Summary
+summary(fp_lpj)
+
+# Check loading of the SI projections
+fp_lpj$left.pls.vectors
+fp_lpj$right.pls.vectors
+
+# Get projected scores
+f1p_lpj= data.frame( "XScores"=fp_lpj$ XScores[,1], "YScores"=fp_lpj$ YScores[,1])
+f1p_lpj$Tribe = with(all_metadata_2, Tribe[match(rownames(f1p_lpj),SpeciesID)])
+
+# R^2 for the PLS fit
+summary(lm(f1p_lpj$YScores ~ f1p_lpj$XScores))
+
+# Visualize shape at minimum and maximum PLS scores.
+minxp_lpj <- min(Pp_lpj$plot_args$y)
+maxxp_lpj <- max(Pp_lpj$plot_args$y)
+predsp_lpj <- shape.predictor(Pp_lpj$A2, 
+                              x = Pp_lpj$plot.args$y,
+                              min = minxp_lpj, max = maxxp_lpj)
+plotRefToTarget(mshape(Pp_lpj$A2), predsp_lpj$min)
+plotRefToTarget(mshape(Pp_lpj$A2), predsp_lpj$max)
+minshapep_lpj = predsp_lpj$min
+maxshapep_lpj = predsp_lpj$max
+
+# Plot PLS
+plot_pls_phy_lpj <- ggplot(data = f1p_lpj, aes(XScores, YScores,colour=Tribe,size=3)) +
+  geom_point() +
+  theme_bw() +  
+  scale_color_manual(values=tribe_colours) +
+  ylab("lower pharyngeal jaw shape projection") +
+  xlab("food source projection") +
+  stat_smooth(method = "lm", col = "darkgray",se = FALSE,size=1, linetype=2) +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 15, hjust = .5, vjust = 0),
+        axis.title.y = element_text(color = "black", size = 15, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        legend.position="none",
+        plot.margin = unit(c(0.2,0.2,0.2,1), "cm"))
+
+# Outlines to draw the shapes
+outline1p_lpj=c(1,12,11,13,10,14,9,15,8,3,23,24,25,5,6,7,22,16,21,17,20,18,19,1)
+outline2p_lpj=c(1,19,18,20,17,21,16,22,7,6,5,25,24,23,3,39,40,41,29,30,31,38,32,37,33,36,34,35,1)
+outline3p_lpj=c(1,12,11,13,10,14,9,15,8,3)
+
+# Plot max shape
+par(mar = c(0,0,0,0))
+plot(maxshapep_lpj[c(1:27),1], -1* maxshapep_lpj[c(1:27),3], xlim=c(-0.25,0.75), ylim=c(-0.5,0.5), pch=16, type="n", axes=F, xlab="", ylab="",asp=1)
+polygon(maxshapep_lpj[c(outline1p_lpj),1]  +0.5 , -1* maxshapep_lpj[c(outline1p_lpj),3]  +0.1 ,lwd=4)
+segments(maxshapep_lpj[15,1]  +0.5 ,-1* maxshapep_lpj[15,3]  +0.1 , maxshapep_lpj[26,1]  +0.5 , -1* maxshapep_lpj[26,3]  +0.1,lwd=4 )
+segments(maxshapep_lpj[7,1]  +0.5 ,-1* maxshapep_lpj[7,3]  +0.1 , maxshapep_lpj[26,1]  +0.5 ,  -1* maxshapep_lpj[26,3]  +0.1,lwd=4 )
+polygon(maxshapep_lpj[c(4,2,27),1]  +0.5 , -1* maxshapep_lpj[c(4,2,27),3]  +0.1, col= rgb(0.51,0.5,0.5,alpha=0.2) ,lwd=4)
+
+lines( y= maxshapep_lpj[outline3p_lpj,1],-1* maxshapep_lpj[outline3p_lpj,2], col="grey",lwd=4)
+segments( y0= maxshapep_lpj[15,1],-1* maxshapep_lpj[15,2],  y1= maxshapep_lpj[26,1],  -1* maxshapep_lpj[26,2], col="grey",lwd=4)
+segments( y0= maxshapep_lpj[7,1],-1* maxshapep_lpj[7,2],  y1=  maxshapep_lpj[26,1],  -1* maxshapep_lpj[26,2], col="grey",lwd=4)
+segments( y0= maxshapep_lpj[42,1],-1* maxshapep_lpj[42,2],   y1= maxshapep_lpj[15,1],  -1* maxshapep_lpj[15,2], col="grey",lwd=4)
+segments( y0= maxshapep_lpj[42,1],-1* maxshapep_lpj[42,2],   y1= maxshapep_lpj[31,1],  -1* maxshapep_lpj[31,2], col="grey",lwd=4)
+polygon( y= maxshapep_lpj[c(outline2p_lpj),1], -1* maxshapep_lpj[c(outline2p_lpj),2],lwd=4)
+polygon( y= maxshapep_lpj[c(4,2,28,27),1], -1* maxshapep_lpj[c(4,2,28,27),2], col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+polygon(maxshapep_lpj[c(outline2p_lpj),2]  +0.5 , -1* maxshapep_lpj[c(outline2p_lpj),3]  -0.1,lwd=4 )
+lines(maxshapep_lpj[outline3p_lpj,2]  +0.5 ,-1* maxshapep_lpj[outline3p_lpj,3]  -0.1 , col="black",lwd=4)
+segments(maxshapep_lpj[15,2]  +0.5 ,-1* maxshapep_lpj[15,3]  -0.1 , maxshapep_lpj[26,2]  +0.5 ,  -1* maxshapep_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(maxshapep_lpj[7,2]  +0.5 ,-1* maxshapep_lpj[7,3]  -0.1 , maxshapep_lpj[26,2]  +0.5 ,  -1* maxshapep_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(maxshapep_lpj[42,2]  +0.5 ,-1* maxshapep_lpj[42,3]  -0.1 , maxshapep_lpj[15,2]  +0.5 ,  -1* maxshapep_lpj[15,3]  -0.1 , col="black",lwd=4)
+segments(maxshapep_lpj[42,2]  +0.5 ,-1* maxshapep_lpj[42,3]  -0.1 , maxshapep_lpj[31,2]  +0.5 ,  -1* maxshapep_lpj[31,3]  -0.1 , col="black",lwd=4)
+polygon(maxshapep_lpj[c(4,2,28,27),2]+0.5, -1* maxshapep_lpj[c(4,2,28,27),3] -0.1, col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+# Plot min shape
+par(mar = c(0,0,0,0))
+plot(minshapep_lpj[c(1:27),1], -1* minshapep_lpj[c(1:27),3], xlim=c(-0.25,0.75), ylim=c(-0.5,0.5), pch=16, col="white", axes=F, xlab="", ylab="",asp=1)
+polygon(minshapep_lpj[c(outline1p_lpj),1]  +0.5 , -1* minshapep_lpj[c(outline1p_lpj),3]  +0.1 ,lwd=4)
+segments(minshapep_lpj[15,1]  +0.5 ,-1* minshapep_lpj[15,3]  +0.1 , minshapep_lpj[26,1]  +0.5 , -1* minshapep_lpj[26,3]  +0.1,lwd=4 )
+segments(minshapep_lpj[7,1]  +0.5 ,-1* minshapep_lpj[7,3]  +0.1 , minshapep_lpj[26,1]  +0.5 ,  -1* minshapep_lpj[26,3]  +0.1,lwd=4 )
+polygon(minshapep_lpj[c(4,2,27),1]  +0.5 , -1* minshapep_lpj[c(4,2,27),3]  +0.1, col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4 )
+
+lines( y= minshapep_lpj[outline3p_lpj,1],-1* minshapep_lpj[outline3p_lpj,2], col="grey",lwd=4)
+segments( y0= minshapep_lpj[15,1],-1* minshapep_lpj[15,2],  y1= minshapep_lpj[26,1],  -1* minshapep_lpj[26,2], col="grey",lwd=4)
+segments( y0= minshapep_lpj[7,1],-1* minshapep_lpj[7,2],  y1=  minshapep_lpj[26,1],  -1* minshapep_lpj[26,2], col="grey",lwd=4)
+segments( y0= minshapep_lpj[42,1],-1* minshapep_lpj[42,2],   y1= minshapep_lpj[15,1],  -1* minshapep_lpj[15,2], col="grey",lwd=4)
+segments( y0= minshapep_lpj[42,1],-1* minshapep_lpj[42,2],   y1= minshapep_lpj[31,1],  -1* minshapep_lpj[31,2], col="grey",lwd=4)
+polygon( y= minshapep_lpj[c(outline2p_lpj),1], -1* minshapep_lpj[c(outline2p_lpj),2],lwd=4)
+polygon( y= minshapep_lpj[c(4,2,28,27),1], -1* minshapep_lpj[c(4,2,28,27),2], col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+polygon(minshapep_lpj[c(outline2p_lpj),2]  +0.5 , -1* minshapep_lpj[c(outline2p_lpj),3]  -0.1 ,lwd=4)
+lines(minshapep_lpj[outline3p_lpj,2]  +0.5 ,-1* minshapep_lpj[outline3p_lpj,3]  -0.1 , col="black",lwd=4)
+segments(minshapep_lpj[15,2]  +0.5 ,-1* minshapep_lpj[15,3]  -0.1 , minshapep_lpj[26,2]  +0.5 ,  -1* minshapep_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(minshapep_lpj[7,2]  +0.5 ,-1* minshapep_lpj[7,3]  -0.1 , minshapep_lpj[26,2]  +0.5 ,  -1* minshapep_lpj[26,3]  -0.1 , col="black",lwd=4)
+segments(minshapep_lpj[42,2]  +0.5 ,-1* minshapep_lpj[42,3]  -0.1 , minshapep_lpj[15,2]  +0.5 ,  -1* minshapep_lpj[15,3]  -0.1 , col="black",lwd=4)
+segments(minshapep_lpj[42,2]  +0.5 ,-1* minshapep_lpj[42,3]  -0.1 , minshapep_lpj[31,2]  +0.5 ,  -1* minshapep_lpj[31,3]  -0.1 , col="black",lwd=4)
+polygon(minshapep_lpj[c(4,2,28,27),2]+0.5, -1* minshapep_lpj[c(4,2,28,27),3] -0.1, col= rgb(0.51,0.5,0.5,alpha=0.2),lwd=4)
+
+#################
+# Make PLS plots 
+#################
+# Make plots without phylogeny
+grid.arrange(plot_pls_iso,plot_pls_bdy,plot_pls_uoj,plot_pls_lpj,nrow=1)
+
+# Make plots with phylogeny
+grid.arrange(plot_pls_phy_iso,plot_pls_phy_bdy, plot_pls_phy_uoj, plot_pls_phy_lpj,nrow=1)
+
+################################################################################
+# Analysis at Class Level
+##########################
+#############################
+# Make subset to class level 
+#############################
+# Make physeq with identification to class level
+physeq_class <- tax_glom(physeq, taxrank=rank_names(physeq)[3], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Extract otu table to filter
+df_physeq_class <- as.data.frame(otu_table(physeq_class))
+
+# Remove hits with fewer than 20 reads
+df_physeq_class[(df_physeq_class) < 20 ] <- 0
+
+# Check number of reads per class
+rowSums(df_physeq_class)
+
+# Remove classes with fewer than 500 reads
+df_physeq_class <- df_physeq_class[rowSums(df_physeq_class) >= 500,]
+
+# Remove hits with fewer than 0.05 % abundance in a sample
+df_physeq_class[apply(df_physeq_class,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add to physeq_class
+otu_table(physeq_class) <- phyloseq::otu_table(df_physeq_class, taxa_are_rows = TRUE)
+
+# Remove Samples that have fewer than 100 reads left
+physeq_class = prune_samples(sample_sums(physeq_class)>=100, physeq_class)
+physeq_class
+
+# Check the min, max, mean, median and sd of reads per sample
+summary(colSums(otu_table(physeq_class)))
+sd(colSums(otu_table(physeq_class)))
+
+# Check nr cichlid species
+length(unique(sample_data(physeq_class)$SpeciesID))
+
+###################################
+# Merge by specimen and by species
+###################################
+# Sum samples by Specimen
+physeq_class_Specimen0 <- physeq_class
+physeq_class_Specimen <- merge_samples(physeq_class_Specimen0,"SpecimenID",fun=sum)
+
+# Then calculate relative value, for equal contribution each specimen
+physeq_class_Specimen1 <- phyloseq::transform_sample_counts(physeq_class_Specimen, function(x) (x / sum(x)*100))
+
+# Add and merge by species
+sample_data(physeq_class_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_class_Specimen1)),all_metadata_2$SpecimenID)])
+physeq_class_Specimen_spp <- merge_samples(physeq_class_Specimen1, "SpeciesID", fun=mean) 
+
+# Add metadata
+sample_data(physeq_class_Specimen_spp)$d15N_mean <-with(all_metadata_2, d15N_mean[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$d15N_std_dev <-with(all_metadata_2, d15N_std_dev[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$Sampling <-with(all_metadata_2, Sampling[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$Tribe <-with(all_metadata_2, Tribe[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$BreedingType <-with(all_metadata_2, BreedingType[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$BreedingMode <-with(all_metadata_2, BreedingMode[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$d13C_mean <-with(all_metadata_2, d13C_mean[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$d13C_std_dev <-with(all_metadata_2, d13C_std_dev[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$FoodCat <-with(all_metadata_2, FoodCat[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_class_Specimen_spp)$Habitat <-with(all_metadata_2, Habitat[match(rownames(sample_data(physeq_class_Specimen_spp)),all_metadata_2$SpeciesID)])
+
+# Take relative values
+physeq_class_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_class_Specimen_spp, function(x) (x / sum(x)*100))
+
+######################
+# Calculate diversity
+######################
+# Plot Shannon and Chao1 diversity
+plot_richness(physeq_class, x='SpeciesID', measures=c("Shannon","Chao1"), color="Tribe") +
+  geom_point(size=2) +
+  geom_boxplot(aes(fill=Tribe),alpha=0.7,size=0.5 ) +
+  theme_minimal() +
+  theme(axis.title=element_text(size=10),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),axis.text.y = element_text( size=8))+
+  scale_colour_manual(values=tribe_colours) +
+  scale_fill_manual(values=tribe_colours) + 
+  scale_x_discrete(limits=rev(pruned.tree$tip.label))
+
+###########################################################
+# Calculate abundance and occurrence of classes in species
+###########################################################
+class_Specimen_spp_rel = as(otu_table(physeq_class_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(class_Specimen_spp_rel) <- with(Tax_table_strict_2, class[match(colnames(class_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Calculate most abundant taxa per species
+main_class <- as.data.frame(colnames(class_Specimen_spp_rel)[apply(class_Specimen_spp_rel,1,which.max)])
+rownames(main_class) <- rownames(class_Specimen_spp_rel)
+main_class$class <- main_class$`colnames(class_Specimen_spp_rel)[apply(class_Specimen_spp_rel, 1, which.max)]`
+unique(main_class$class)
+
+# Check these classes
+length(which(main_class$class == "Malacostraca"))
+length(which(main_class$class == "Actinopteri"))
+length(which(main_class$class == "Ostracoda"))
+length(which(main_class$class == "Magnoliopsida"))
+length(which(main_class$class == "Bacillariophyceae"))
+length(which(main_class$class == "Hexanauplia"))
+length(which(main_class$class == "Insecta"))
+length(which(main_class$class == "Ulvophyceae"))
+length(which(main_class$class == "Hydrozoa"))
+
+# Check overall abundance per Class
+colSums(class_Specimen_spp_rel)/nrow(class_Specimen_spp_rel)
+
+# Calculate overal occurence in a species
+class_Specimen_spp_rel2 <- class_Specimen_spp_rel
+class_Specimen_spp_rel2[class_Specimen_spp_rel2 >= 0.5] <- 1
+class_Specimen_spp_rel2[class_Specimen_spp_rel2 < 0.5] <- 0
+
+# Check in how many species the classes occur
+colSums(class_Specimen_spp_rel2)
+
+# Then relative over all species
+colSums(class_Specimen_spp_rel2)/nrow(class_Specimen_spp_rel2)
+
+##############################################
+# For FOO% individuals
+##############################################
+#Take otu table per specimen
+class_Specimen = as(otu_table(physeq_class_Specimen), "matrix")
+
+# Make copy where we keep original TaxIDs
+class_Specimen0 <- as.data.frame(t(class_Specimen))
+
+# Rename TaxID's
+colnames(class_Specimen) <- with(Tax_table_strict_2, class[match(colnames(class_Specimen),rownames(Tax_table_strict_2))])
+
+# Look at FOO in species by specimen
+class_Specimen2 <- as.data.frame(t(class_Specimen))
+class_Specimen2[apply(class_Specimen2,2,function(x){x/sum(x)}) >= 0.005] <- 1
+class_Specimen2[class_Specimen2 > 1] <- 0
+rowSums(class_Specimen2)/ncol(class_Specimen2)
+
+# Take FOO per species to put back into PhyloSeq object
+class_Specimen0[apply(class_Specimen0,2,function(x){x/sum(x)}) >= 0.005] <- 1
+class_Specimen0[class_Specimen0 > 1] <- 0
+rowSums(class_Specimen0)
+
+# Make Phyloseq object with FOO
+physeq_class_FOO_Specimen <- physeq_class_Specimen
+otu_table(physeq_class_FOO_Specimen) <- phyloseq::otu_table(class_Specimen0, taxa_are_rows = TRUE)
+sample_data(physeq_class_FOO_Specimen)$SpeciesID <- with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_class_FOO_Specimen)),all_metadata_2$SpecimenID)])
+
+# Merge specimens per species
+physeq_class_FOO_Specimen_spp <- merge_samples(physeq_class_FOO_Specimen, "SpeciesID", fun=sum) 
+
+# Extract otu_table
+class_Specimen_spp = as(otu_table(physeq_class_FOO_Specimen_spp), "matrix")
+
+# rename TaxIDs
+colnames(class_Specimen_spp) <- with(Tax_table_strict_2, class[match(colnames(class_Specimen_spp),rownames(Tax_table_strict_2))])
+
+# Get nr specimens per species to calculate %
+physeq_class_FOO_Specimen_sppFreq = as(sample_data(physeq_class_FOO_Specimen), "data.frame")
+class_specimen_freq <- table(physeq_class_FOO_Specimen_sppFreq$SpeciesID)
+
+# Calculate FOO%
+class_Specimen_spp_FOOPerc <- t(apply(class_Specimen_spp, 2, "/", class_specimen_freq))
+
+# Melt and prepare data for barplot
+bar_class_sp_FOO <- melt(class_Specimen_spp_FOOPerc, id.vars = "SpeciesID", variable.name = "class")
+bar_class_sp_FOO$value <- as.numeric(bar_class_sp_FOO$value)
+bar_class_sp_FOO$Var2 <- factor(bar_class_sp_FOO$Var2)
+bar_class_sp_FOO$class <- factor(bar_class_sp_FOO$Var1)
+bar_class_sp_FOO$Tribe = with(all_metadata_2, Tribe[match(bar_class_sp_FOO$Var2,all_metadata_2$SpeciesID)])
+bar_class_sp_FOO$Tribe <- factor(bar_class_sp_FOO$Tribe)
+
+# Define colours for the classes
+class_cols = c("Clitellata"="mediumpurple3","Malacostraca"="sandybrown","Hexanauplia"="coral","Ostracoda"="coral4","Insecta"="lightcoral", "Arachnida"="tan3", "Branchiopoda"="peachpuff1" ,"Eustigmatophyceae"="olivedrab1","Bacillariophyceae"="olivedrab","Mediophyceae"="olivedrab2", "Coscinodiscophyceae"="olivedrab3","Chlorophyceae"="seagreen1","Trebouxiophyceae"="seagreen3","Ulvophyceae"= "palegreen" , "Actinopteri"="#224e66", "Cladistia"="royalblue1","Hydrozoa"="ghostwhite","Gastropoda"="brown","Demospongiae"="khaki1","Magnoliopsida"="mediumseagreen")
+
+# Make a barplot for FOO% per species
+ggplot(data=bar_class_sp_FOO,aes(x=class,y=value,fill=class) ) +
+  geom_bar(position="dodge",stat = "identity") +
+  geom_col(color = "black") +
+  ylab("FOO%") +
+  facet_grid(.~Var2, scales = "free", switch = "x", space = "free_x") +
+  facet_wrap(factor(Tribe, level=Tribe_ordering)~factor(Var2, level=Species_ordering),scales = "free",nrow=7) +
+  scale_fill_manual(values=class_cols) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.x=element_blank()) 
+
+#############################
+# Make Class abundance graph
+#############################
+# Plot stacked barplot per species 
+plot_bar(physeq_class_Specimen_spp_rel, fill="class") + 
+  geom_bar(aes(fill = class), stat="identity", position="stack") +
+  labs(x = "", y = "Relative Abundance\n") +
+  theme(strip.text.x = element_text(size = 12, color = "black" ),
+        strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  scale_x_discrete()  + 
+  theme(panel.background = element_blank()) +
+  scale_fill_manual(values=class_cols) +
+  scale_x_discrete(limits=rev(Species_ordering)) + 
+  coord_flip()
+
+# Make plot with tree and ordering as before by taxa
+class_Specimen_spp_rel = as(otu_table(physeq_class_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(class_Specimen_spp_rel) <- with(Tax_table_strict_2, class[match(colnames(class_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Make table for abundance tables
+bar_class_sp_otu <- melt(class_Specimen_spp_rel, id.vars = "SpeciesID", variable.name = "class")
+bar_class_sp_otu$value <- as.numeric(bar_class_sp_otu$value)
+bar_class_sp_otu$Var2 <- factor(bar_class_sp_otu$Var2)
+bar_class_sp_otu$Var1 <- factor(bar_class_sp_otu$Var1)
+
+# Plot stacked barplot with tree
+p + geom_tree(size=1.3,aes(colour=Tribe)) + 
+  scale_colour_manual(values=tribe_colours) + 
+  geom_treescale()+
+  geom_tiplab(geom="text",offset=0,size=3,as_ylab=FALSE) +
+  geom_fruit(data=bar_class_sp_otu, 
+             geom=geom_bar,mapping=aes(y=Var1, x=value,fill = Var2), 
+             stat="identity", width = 0.9,pwidth=2,offset=0.12)+
+  scale_fill_manual(values=class_cols)
+
+
+################################################################################
+# Analysis at Order Level
+##########################
+#############################
+# Make subset to order level 
+#############################
+# Make physeq with identification to order level
+physeq_order <- tax_glom(physeq, taxrank=rank_names(physeq)[4], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Filter dataset
+df_physeq_order <- as.data.frame(otu_table(physeq_order))
+
+# Remove hits with fewer than 20 counts
+df_physeq_order[(df_physeq_order) < 20 ] <- 0
+
+# Check number of total reads per order
+rowSums(df_physeq_order)
+
+# Remove orders with fewer than 500 reads
+df_physeq_order <- df_physeq_order[rowSums(df_physeq_order) >= 500,]
+
+# Remove hits with fewer than 0.5 % relative abundance in a sample
+df_physeq_order[apply(df_physeq_order,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add to filtered data back to phyloseq object
+otu_table(physeq_order) <- phyloseq::otu_table(df_physeq_order, taxa_are_rows = TRUE)
+
+# Remove Samples that have less than 100 reads left
+physeq_order = prune_samples(sample_sums(physeq_order)>=100, physeq_order)
+physeq_order
+
+# Check nr cichlid species
+length(unique(sample_data(physeq_order)$SpeciesID))
+
+# Check min, max, mean, median and sd per sample
+summary(colSums(otu_table(physeq_order)))
+sd(colSums(otu_table(physeq_order)))
+
+# Merge samples by Specimen
+physeq_order_Specimen <- merge_samples(physeq_order,"SpecimenID",fun=sum)
+
+# Take relative of each sample for equal contribution when merging
+physeq_order_Specimen1 <- phyloseq::transform_sample_counts(physeq_order_Specimen, function(x) (x / sum(x)*100))
+
+# Then merge by species
+sample_data(physeq_order_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_order_Specimen1)),all_metadata_2$SpecimenID)])
+physeq_order_Specimen_spp <- merge_samples(physeq_order_Specimen1, "SpeciesID", fun=mean) 
+
+# Add metadata
+sample_data(physeq_order_Specimen_spp)$d15N_mean <-with(all_metadata_2, d15N_mean[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$d15N_std_dev <-with(all_metadata_2, d15N_std_dev[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$Sampling <-with(all_metadata_2, Sampling[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$Tribe <-with(all_metadata_2, Tribe[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$BreedingType <-with(all_metadata_2, BreedingType[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$BreedingMode <-with(all_metadata_2, BreedingMode[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$d13C_mean <-with(all_metadata_2, d13C_mean[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$d13C_std_dev <-with(all_metadata_2, d13C_std_dev[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$FoodCat <-with(all_metadata_2, FoodCat[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+sample_data(physeq_order_Specimen_spp)$Habitat <-with(all_metadata_2, Habitat[match(rownames(sample_data(physeq_order_Specimen_spp)),all_metadata_2$SpeciesID)])
+
+# Take relative value
+physeq_order_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_order_Specimen_spp, function(x) (x / sum(x)*100))
+
+######################
+# Calculate diversity
+######################
+# Plot diversity
+plot_richness(physeq_order, x='SpeciesID', measures=c("Shannon","Chao1"), color="Tribe") +
+  geom_point(size=2) +
+  geom_boxplot(aes(fill=Tribe),alpha=0.7,size=0.5 ) +
+  theme_minimal() +
+  theme(axis.title=element_text(size=10),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),axis.text.y = element_text( size=8))+
+  scale_colour_manual(values=tribe_colours) +
+  scale_fill_manual(values=tribe_colours) + 
+  scale_x_discrete(limits=rev(pruned.tree$tip.label))
+
+##########################################################
+# Calculate abundance and occurrence of orders in species
+##########################################################
+# Extract otu table
+order_Specimen_spp_rel = as(otu_table(physeq_order_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(order_Specimen_spp_rel) <- with(Tax_table_strict_2, order[match(colnames(order_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Check total abundance per species
+colSums(order_Specimen_spp_rel)/nrow(order_Specimen_spp_rel)
+
+# Calculate FOO
+order_Specimen_spp_rel2 <- order_Specimen_spp_rel
+order_Specimen_spp_rel2[order_Specimen_spp_rel2 >= 1] <- 1
+order_Specimen_spp_rel2[order_Specimen_spp_rel2 < 1] <- 0
+
+# Check FOO of orders
+colSums(order_Specimen_spp_rel2)
+
+# Check FOO% of orders
+colSums(order_Specimen_spp_rel2)/nrow(order_Specimen_spp_rel2)
+
+#########################
+# Abundance at order level
+##############################
+# Define colours for orders
+order_cols = c("Cyprinodontiformes"="powderblue","Carangaria incertae sedis Latidae"="royalblue4","Synbranchiformes"="slategray3","Cypriniformes"="royalblue1","Siluriformes"="turquoise3", "Clupeiformes"="lightcyan", "Osteoglossiformes"="lightskyblue" ,"Polypteriformes"="mediumblue","Decapoda"="sandybrown","Amphipoda"="peachpuff1", "Calanoida"="coral","Cyclopoida"="coral3","Podocopida"="coral4","Diplostraca"= "tan1" , "Diptera"="wheat", "Lepidoptera"="lightyellow","Hymenoptera"="oldlace","Odonata"="tan","Ixodida"="tan4","Araneae"="tan3","Architaenioglossa"="violetred4","Rhynchobdellida"="mediumpurple3","Limnomedusae"="ghostwhite","Spongillida"="khaki1","Fabales"="springgreen3", "Rosales"="springgreen2", "Malpighiales"="springgreen4" ,"Fagales"="springgreen","Solanales"="green3","Saxifragales"="mediumseagreen","Poales"="greenyellow","Arecales"="chartreuse2","Asparagales"="darkgreen", "Alismatales"="chartreuse3", "Ceratophyllales"="forestgreen" ,"Nymphaeales"="lightgreen","Sphaeropleales"="darkseagreen4","Chlamydomonadales"="darkseagreen1", "Oedogoniales"="darkseagreen3","Chlorellales"="darkseagreen2","Cladophorales"="lightseagreen","Bacillariales"= "olivedrab4" , "Naviculales"="olivedrab2", "Anaulales"="olivedrab1","Thalassiosirales"="olivedrab3","Eustigmatales"="darkolivegreen")
+
+# Plot stacked barplots
+plot_bar(physeq_order_Specimen_spp_rel, fill="order") + 
+  geom_bar(aes(fill = order), stat="identity", position="stack") +
+  labs(x = "", y = "Relative Abundance\n") +
+  theme(strip.text.x = element_text(size = 12, color = "black" ),
+        strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  scale_x_discrete()  + 
+  theme(panel.background = element_blank()) +
+  scale_fill_manual(values=order_cols) +
+  scale_x_discrete(limits=rev(Species_ordering)) + 
+  coord_flip()
+
+# Plot with tree
+# Extract otu_table
+order_Specimen_spp_rel = as(otu_table(physeq_order_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(order_Specimen_spp_rel) <- with(Tax_table_strict_2, order[match(colnames(order_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Make table for abundance tables
+bar_order_sp_otu <- melt(order_Specimen_spp_rel, id.vars = "SpeciesID", variable.name = "order")
+bar_order_sp_otu$value <- as.numeric(bar_order_sp_otu$value)
+bar_order_sp_otu$Var2 <- factor(bar_order_sp_otu$Var2)
+bar_order_sp_otu$order <- factor(bar_order_sp_otu$Var2)
+bar_order_sp_otu$Var1 <- factor(bar_order_sp_otu$Var1)
+
+p + geom_tree(size=1.3,aes(colour=Tribe)) + 
+  scale_colour_manual(values=tribe_colours) + 
+  geom_treescale()+
+  geom_tiplab(geom="text",offset=0,size=3,as_ylab=FALSE) +
+  geom_fruit(data=bar_order_sp_otu, geom=geom_bar,mapping=aes(y=Var1, x=value,fill = order), stat="identity", width = 0.9,pwidth=2,offset=0.12)+
+  scale_fill_manual(values=order_cols)
+
+
+################################################################################
+# At family level
+##################
+##############################
+# Make subset to family level 
+##############################
+# Make physeq with identification to family level
+physeq_family <- tax_glom(physeq, taxrank=rank_names(physeq)[5], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Filter dataset
+df_physeq_family <- as.data.frame(otu_table(physeq_family))
+
+# Hits with fewer than 20 reads removed
+df_physeq_family[(df_physeq_family) < 20 ] <- 0
+
+# Check total number of reads per family
+rowSums(df_physeq_family)
+
+# Remove families 
+df_physeq_family <- df_physeq_family[rowSums(df_physeq_family) >= 200,]
+
+# Remove hits with fewer than 0.5 % abundance in sample
+df_physeq_family[apply(df_physeq_family,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add filtered table to physeq_family
+otu_table(physeq_family) <- phyloseq::otu_table(df_physeq_family, taxa_are_rows = TRUE)
+
+# Remove Samples that have fewer than 100 reads left
+physeq_family = prune_samples(sample_sums(physeq_family)>=100, physeq_family)
+physeq_family
+
+# Check number of cichlid species
+length(unique(sample_data(physeq_family)$SpeciesID))
+
+# Check min, max, mean, median and sd reads per sample
+summary(colSums(otu_table(physeq_family)))
+sd(colSums(otu_table(physeq_family)))
+
+# Merge samples by Specimen
+physeq_family_Specimen <- merge_samples(physeq_family,"SpecimenID",fun=sum)
+
+############
+# Check FOO
+############
+# Take rel
+physeq_family_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_family_Specimen_spp, function(x) (x / sum(x)*100))
+family_Specimen_spp_rel = as(otu_table(physeq_family_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(family_Specimen_spp_rel) <- with(Tax_table_strict_2, family[match(colnames(family_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Check overall abundance per family
+colSums(family_Specimen_spp_rel)/nrow(family_Specimen_spp_rel)
+
+# Check FOO
+family_Specimen_spp_rel2 <- family_Specimen_spp_rel
+family_Specimen_spp_rel2[family_Specimen_spp_rel2 >= 1] <- 1
+family_Specimen_spp_rel2[family_Specimen_spp_rel2 < 1] <- 0
+
+# FOO
+colSums(family_Specimen_spp_rel2)
+
+# FOO%
+colSums(family_Specimen_spp_rel2)/nrow(family_Specimen_spp_rel2)
+
+################################################################################
+# At genus level
+#################
+#############################
+# Make subset to genus level 
+#############################
+# Make physeq with identification to genus level
+physeq_genus <- tax_glom(physeq, taxrank=rank_names(physeq)[6], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Make dataset to filter
+df_physeq_genus <- as.data.frame(otu_table(physeq_genus))
+
+# Remove hits with fewer than 20 reads
+df_physeq_genus[(df_physeq_genus) < 20 ] <- 0
+
+# Check nr of total reads per genus
+rowSums(df_physeq_genus)
+
+# Remove genera with fewer than 100 reads
+df_physeq_genus <- df_physeq_genus[rowSums(df_physeq_genus) >= 100,]
+
+# Remove hits with fewer than 0.5 % abundance in sample
+df_physeq_genus[apply(df_physeq_genus,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add filtered table to phyloseq
+otu_table(physeq_genus) <- phyloseq::otu_table(df_physeq_genus, taxa_are_rows = TRUE)
+
+# Remove samples with fewer than 100 reads
+physeq_genus = prune_samples(sample_sums(physeq_genus)>=100, physeq_genus)
+physeq_genus
+
+# Check number of cichlid species
+length(unique(sample_data(physeq_genus)$SpeciesID))
+
+# Check min, max, mean, median and sd in number of reads per sample
+summary(colSums(otu_table(physeq_genus)))
+sd(colSums(otu_table(physeq_genus)))
+
+# Merge samples by Specimen
+physeq_genus_Specimen0 <- physeq_genus
+physeq_genus_Specimen <- merge_samples(physeq_genus_Specimen0,"SpecimenID",fun=sum)
+
+# Take relative value
+physeq_genus_Specimen1 <- phyloseq::transform_sample_counts(physeq_genus_Specimen, function(x) (x / sum(x)*100))
+
+# Merge by species
+sample_data(physeq_genus_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_genus_Specimen1)),all_metadata_2$SpecimenID)])
+physeq_genus_Specimen_spp <- merge_samples(physeq_genus_Specimen1, "SpeciesID", fun=mean) 
+
+# Take relative value
+physeq_genus_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_genus_Specimen_spp, function(x) (x / sum(x)*100))
+genus_Specimen_spp_rel = as(otu_table(physeq_genus_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(genus_Specimen_spp_rel) <- with(Tax_table_strict_2, genus[match(colnames(genus_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Check overall abundance per genus
+colSums(genus_Specimen_spp_rel)/nrow(genus_Specimen_spp_rel)
+
+# Calculate FOO
+genus_Specimen_spp_rel2 <- genus_Specimen_spp_rel
+genus_Specimen_spp_rel2[genus_Specimen_spp_rel2 >= 1] <- 1
+genus_Specimen_spp_rel2[genus_Specimen_spp_rel2 < 1] <- 0
+
+# FOO
+colSums(genus_Specimen_spp_rel2)
+
+# FOO%
+colSums(genus_Specimen_spp_rel2)/nrow(genus_Specimen_spp_rel2)
+
+####################
+# At species level
+####################
+###############################
+# Make subset to species level #
+###############################
+# Make physeq with identification to species level
+physeq_species <- tax_glom(physeq, taxrank=rank_names(physeq)[7], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Filter samples
+df_physeq_species <- as.data.frame(otu_table(physeq_species))
+
+# Need at least 20 reads for a hit
+df_physeq_species[(df_physeq_species) < 20 ] <- 0
+
+# Need a min of 100 total reads per diet species
+df_physeq_species <- df_physeq_species[rowSums(df_physeq_species) >= 100,]
+
+# Need 0.5 % abundance reads per diet species per sample for hit
+df_physeq_species[apply(df_physeq_species,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add to physeq_species
+otu_table(physeq_species) <- phyloseq::otu_table(df_physeq_species, taxa_are_rows = TRUE)
+
+# Remove Samples that have less than 100 reads left
+physeq_species = prune_samples(sample_sums(physeq_species)>=100, physeq_species)
+
+# Check number of cichlid species
+length(unique(sample_data(physeq_species)$SpeciesID))
+
+# Check min, max, mean, median and sd in number of reads per sample
+summary(colSums(otu_table(physeq_species)))
+sd(colSums(otu_table(physeq_species)))
+
+# Merge samples by Specimen
+physeq_species_Specimen0 <- physeq_species
+physeq_species_Specimen <- merge_samples(physeq_species_Specimen0,"SpecimenID",fun=sum)
+
+# Take relative values
+physeq_species_Specimen1 <- phyloseq::transform_sample_counts(physeq_species_Specimen, function(x) (x / sum(x)*100))
+
+# Merge by cichlid species
+sample_data(physeq_species_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_species_Specimen1)),all_metadata_2$SpecimenID)])
+physeq_species_Specimen_spp <- merge_samples(physeq_species_Specimen1, "SpeciesID", fun=mean) 
+
+# Take relative values
+physeq_species_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_species_Specimen_spp, function(x) (x / sum(x)*100))
+species_Specimen_spp_rel = as(otu_table(physeq_species_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(species_Specimen_spp_rel) <- with(Tax_table_strict_2, species[match(colnames(species_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Check abundance per species
+colSums(species_Specimen_spp_rel)/nrow(species_Specimen_spp_rel)
+
+################################################################################
+# Analysis over all taxonomic ranks
+####################################
+##################################
+# Make barplot nr reads each rank
+##################################
+# Make dataset for total nr reads
+physeq_phylum_df <- as.data.frame(t(otu_table(physeq_phylum)))
+physeq_phylum_df$rowsum <- rowSums(physeq_phylum_df)
+all_metadata_2$rowsum_phylum <-with(physeq_phylum_df, rowsum[match(rownames(all_metadata_2),rownames(physeq_phylum_df))])
+
+physeq_class_df <- as.data.frame(t(otu_table(physeq_class)))
+physeq_class_df$rowsum <- rowSums(physeq_class_df)
+all_metadata_2$rowsum_class <-with(physeq_class_df, rowsum[match(rownames(all_metadata_2),rownames(physeq_class_df))])
+
+physeq_order_df <- as.data.frame(t(otu_table(physeq_order)))
+physeq_order_df$rowsum <- rowSums(physeq_order_df)
+all_metadata_2$rowsum_order <-with(physeq_order_df, rowsum[match(rownames(all_metadata_2),rownames(physeq_order_df))])
+
+physeq_family_df <- as.data.frame(t(otu_table(physeq_family)))
+physeq_family_df$rowsum <- rowSums(physeq_family_df)
+all_metadata_2$rowsum_family <-with(physeq_family_df, rowsum[match(rownames(all_metadata_2),rownames(physeq_family_df))])
+
+physeq_genus_df <- as.data.frame(t(otu_table(physeq_genus)))
+physeq_genus_df$rowsum <- rowSums(physeq_genus_df)
+all_metadata_2$rowsum_genus <-with(physeq_genus_df, rowsum[match(rownames(all_metadata_2),rownames(physeq_genus_df))])
+
+physeq_species_df <- as.data.frame(t(otu_table(physeq_species)))
+physeq_species_df$rowsum <- rowSums(physeq_species_df)
+all_metadata_2$rowsum_species <-with(physeq_species_df, rowsum[match(rownames(all_metadata_2),rownames(physeq_species_df))])
+
+# Make seperate dataset with all total number of reads per sample
+all_rowsums <- all_metadata_2[ c("rowsum_phylum","rowsum_class","rowsum_order","rowsum_family","rowsum_genus","rowsum_species") ]
+all_rowsums$SampleID <- rownames(all_rowsums)
+
+# Melt for abundance plot
+Reads_melt <- melt(all_rowsums, id.vars = "SampleID", variable.name = "Rank")
+
+# Add metadata
+Reads_melt$Tribe <-with(all_metadata_2, Tribe[match(Reads_melt$SampleID,rownames(all_metadata_2))])
+Reads_melt$SpeciesID <-with(all_metadata_2, SpeciesID[match(Reads_melt$SampleID,rownames(all_metadata_2))])
+Reads_melt$TissueTubeID <-with(all_metadata_2, TissueTubeID[match(Reads_melt$SampleID,rownames(all_metadata_2))])
+Reads_melt$spot <- rownames(Reads_melt)
+
+# Define factors
+Reads_melt$SampleID <- as.factor(Reads_melt$SampleID)
+Reads_melt$Rank <- as.factor(Reads_melt$Rank)
+Reads_melt$Tribe <- as.factor(Reads_melt$Tribe)
+Reads_melt$SpeciesID <- as.factor(Reads_melt$SpeciesID)
+Reads_melt$spot <- as.factor(Reads_melt$spot)
+
+# Combine SampleID and taxonomic Rank
+varread1 = as.character(get_variable(Reads_melt, "SampleID"))
+varread2 = as.character(get_variable(Reads_melt, "Rank"))
+Reads_melt$SampleID_Rank <- mapply(paste0, varread1, varread2,collapse = "_")
+
+# Order by species ID, then rank
+reads_ordering <- c("rowsum_phylum","rowsum_class","rowsum_order","rowsum_family","rowsum_genus","rowsum_species")
+Reads_melt$SampleID_Rank <- factor(Reads_melt$SampleID_Rank, levels=reads_ordering)
+Reads_melt <- Reads_melt[order(Reads_melt$SampleID_Rank),]
+
+# Rename column
+Reads_melt$`Taxonomic rank` <- Reads_melt$Rank
+
+# Rename tax ranks
+Reads_melt <- Reads_melt %>%
+  mutate(`Taxonomic rank` = recode(`Taxonomic rank`, rowsum_phylum = 'Phylum', rowsum_class = 'Class', rowsum_order = 'Order', rowsum_family = 'Family', rowsum_genus = 'Genus', rowsum_species = 'Species' ))
+
+# Define colours for plot
+reads_col <- c("lightskyblue","darkgreen","darkgoldenrod1","chocolate","firebrick","gray27")
+
+# Make barplot
+ggplot(data=Reads_melt, aes(x=SampleID, y=value, group=`Taxonomic rank`)) +
+  xlab("Sample") + ylab("Number of total reads") +
+  scale_fill_manual(values=reads_col) + 
+  geom_bar(position="dodge",aes(fill=`Taxonomic rank`),stat = "identity") +
+  facet_grid(.~SampleID, scales = "free", switch = "x", space = "free_x") +
+  facet_wrap(Tribe~SpeciesID, scales=("free"),nrow=6) +
+  theme_classic() +
+  theme(axis.text.x = element_blank()) 
+
+
+
+################################################################################
+## Non-Diet Taxa
+################################################################################
+
+################################################################################
+# Protista
+###########
+# Filter abundance table before taxa filtering
+matrix_abund_prot <- matrix_abund_1[rowSums(matrix_abund_1) >= 800,]
+matrix_abund_prot <- matrix_abund_prot[rowSums(matrix_abund_prot > 20) >= 2,]
+
+# Remove reference, hybrid and problematic samples
+matrix_abund_prot <- matrix_abund_prot[ ,colnames(matrix_abund_prot) %in% rownames(all_metadata_1) ]
+
+# Remove from taxonomy table
+Tax_table_strict_prot <- Tax_table_strict[ rownames(Tax_table_strict) %in% rownames(matrix_abund_prot), ]
+
+# Only take Protista taxa
+Tax_table_strict_prot <- Tax_table_strict_prot[ Tax_table_strict_prot$phylum %in% c("Ciliophora","Myzozoa","Fornicata","Apicomplexa"), ]
+
+# Keep only these rows in abundance table for which we have a taxonomy
+matrix_abund_prot <- matrix_abund_prot[ rownames(matrix_abund_prot) %in% rownames(Tax_table_strict_prot), ]
+
+# Remove samples with lower than 10 counts
+matrix_abund_prot <- matrix_abund_prot[,colSums(matrix_abund_prot) >= 10]
+
+# Keep only samples with Protista in metadata
+all_metadata_prot <- all_metadata[ rownames(all_metadata) %in% colnames(matrix_abund_prot) ,]
+
+# Make Phyloseq object
+# Specify datasets needed
+otu_mat_prot <- matrix_abund_prot
+tax_mat_prot <- Tax_table_strict_prot
+samples_df_prot <- all_metadata_prot
+
+# Transform otu table to matrix with numeric values
+otu_mat_prot <- as.matrix(otu_mat_prot)
+class(otu_mat_prot) <- "numeric"
+
+# Transform taxonomy table to matrix
+tax_mat_prot <- as.matrix(tax_mat_prot)
+
+# Transform matrices to phyloseq objects
+OTU_prot = phyloseq::otu_table(otu_mat_prot, taxa_are_rows = TRUE)
+TAX_prot = phyloseq::tax_table(tax_mat_prot)
+samples_prot = phyloseq::sample_data(samples_df_prot)
+
+# Make phyloseq object
+physeq_prot <- phyloseq::phyloseq(OTU_prot, TAX_prot, samples_prot)
+physeq_prot
+
+# Define colours
+phyla_prot_cols = c("Ciliophora"="darkseagreen1")
+
+# Make an exploratory barplot using relative abundance
+phyloseq::plot_bar(physeq_prot, "TissueTubeID", fill="phylum") + 
+  geom_bar(aes(fill = phylum), stat="identity", position="stack") +
+  labs(x = "", y = "Total abundance") +
+  theme(strip.text.x = element_text(size = 12, color = "black" ),strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  facet_wrap(Tribe~SpeciesID, scales=("free"),nrow=3) +
+  theme(panel.background = element_blank())  +
+  scale_fill_manual(values=phyla_prot_cols)
+
+########################################################
+# Make physeq_prot with identification to phylum level
+########################################################
+# Subset to phylum level
+physeq_prot_phylum <- tax_glom(physeq_prot, taxrank=rank_names(physeq_prot)[2], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Need a min of 10 reads per OTU per sample
+df_prot_phylum <- as.data.frame(otu_table(physeq_prot_phylum))
+df_prot_phylum[df_prot_phylum < 10 ] <- 0
+
+# Remove samples with lower than 10 counts
+df_prot_phylum <- df_prot_phylum[,colSums(df_prot_phylum) >= 10]
+
+# Only presence-abscence, to change values to 1
+df_prot_phylum[df_prot_phylum > 1 ] <- 1
+
+# Add again to Phyloseq
+otu_table(physeq_prot_phylum) <- phyloseq::otu_table(df_prot_phylum, taxa_are_rows = TRUE)
+
+# Add variable combining SpeciesID and TissueID for plot
+variable1 = as.character(get_variable(physeq_prot_phylum, "SpeciesID"))
+variable2 = as.character(get_variable(physeq_prot_phylum, "TissueID"))
+sample_data(physeq_prot_phylum)$SpeciesID_TissueID <- mapply(paste0, variable1, variable2,collapse = "_")
+
+# Merge per species, FG vs HG
+physeq_prot_phylum_spp_tiss <- merge_samples(physeq_prot_phylum, "SpeciesID_TissueID", fun=sum) 
+
+# Extract otu table
+prot_phylum_spp_tiss = as(otu_table(physeq_prot_phylum_spp_tiss), "matrix")
+
+# Rename TaxID's
+colnames(prot_phylum_spp_tiss) <- with(Tax_table_strict_prot, phylum[match(colnames(prot_phylum_spp_tiss),rownames(Tax_table_strict_prot))])
+
+# Melt matrix for graph
+prot_phylum_spp_tiss_melt <- melt(t(prot_phylum_spp_tiss), id.vars = "SpeciesID_TissueID", variable.name = "Phylum")
+prot_phylum_spp_tiss_melt$value <- as.numeric(prot_phylum_spp_tiss_melt$value)
+
+# Put NA so only dots when there are values
+prot_phylum_spp_tiss_melt[prot_phylum_spp_tiss_melt == 0] <- NA
+
+# Add metadata
+sample_data_phylum_prot <- as.data.frame(sample_data(physeq_prot_phylum))
+prot_phylum_spp_tiss_melt$SpeciesID = with(sample_data_phylum_prot, SpeciesID[match(prot_phylum_spp_tiss_melt$Var2,sample_data_phylum_prot$SpeciesID_TissueID)])
+prot_phylum_spp_tiss_melt$Tribe = with(sample_data_phylum_prot, Tribe[match(prot_phylum_spp_tiss_melt$Var2,sample_data_phylum_prot$SpeciesID_TissueID)])
+prot_phylum_spp_tiss_melt$TissueID = with(sample_data_phylum_prot, TissueID[match(prot_phylum_spp_tiss_melt$Var2,sample_data_phylum_prot$SpeciesID_TissueID)])
+
+# Rename FG HG
+prot_phylum_spp_tiss_melt <- prot_phylum_spp_tiss_melt %>%
+  mutate(TissueID = recode(TissueID, ContentFG = 'AG', ContentHG = 'PG' ))
+
+# Combine protsite and tissue id for graph
+prot_phylum_spp_tiss_melt$prot_tiss <- paste(prot_phylum_spp_tiss_melt$Var1,prot_phylum_spp_tiss_melt$TissueID)
+
+# Order Cichlids in rigth way
+prot_cichlid_phylum_host_ordering <- c("Cphgib","Cphfro","Ophven","PcybrN","Cypdwj","Varmoo","Telvit","Neobre")
+
+# Rename column
+prot_phylum_spp_tiss_melt$FOO <- prot_phylum_spp_tiss_melt$value
+
+# Define colours by species' tribe
+prot_cichlid_phylum_host_cols <- c("Cphgib"="#FDDF13","Cphfro"="#FDDF13","Ophven"="#9AB9D9","PcybrN"="#F04D29","Cypdwj"="#F04D29","Varmoo"="#C588BB","Telvit"="#C588BB","Neobre"="#C588BB")
+
+# Make bubble plot
+ggplot(prot_phylum_spp_tiss_melt, aes(y=prot_tiss,x=factor(SpeciesID, level = prot_cichlid_phylum_host_ordering),colour=Tribe, size=FOO)) +
+  geom_point() +
+  scale_colour_manual(values=tribe_colours) + 
+  scale_size(range = c(4,10)) +
+  scale_y_discrete(limits=rev) +
+  theme_minimal() +
+  theme(axis.title.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.label.y=element_blank(),
+        axis.ticks.y=element_blank()) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,color = "black"))
+################################################################################
+# fungi
+########
+# Filter abundance table before taxa filtering
+matrix_abund_fung <- matrix_abund_1[rowSums(matrix_abund_1) >= 800,]
+matrix_abund_fung <- matrix_abund_fung[rowSums(matrix_abund_fung > 20) >= 2,]
+
+# Remove reference, hybrid and problematic samples
+matrix_abund_fung <- matrix_abund_fung[ ,colnames(matrix_abund_fung) %in% rownames(all_metadata_1) ]
+
+# Remove from taxonomy table
+Tax_table_strict_fung <- Tax_table_strict[ rownames(Tax_table_strict) %in% rownames(matrix_abund_fung), ]
+
+# Only take Fungi taxa
+Tax_table_strict_fung <- Tax_table_strict_fung[ Tax_table_strict_fung$phylum %in% c("Microsporidia","Mucoromycota","Oomycota","Ascomycota","Basidiomycota"), ]
+
+# Keep only these rows in abundance table for which we have a taxonomy
+matrix_abund_fung <- matrix_abund_fung[ rownames(matrix_abund_fung) %in% rownames(Tax_table_strict_fung), ]
+
+# Remove samples with lower than 10 counts
+matrix_abund_fung <- matrix_abund_fung[,colSums(matrix_abund_fung) >= 10]
+
+# Only keep metadata of the samples with Fungi
+all_metadata_fung <- all_metadata[ rownames(all_metadata) %in% colnames(matrix_abund_fung) ,]
+
+# Make Phyloseq object
+# Specify datasets needed
+otu_mat_fung <- matrix_abund_fung
+tax_mat_fung <- Tax_table_strict_fung
+samples_df_fung <- all_metadata_fung
+
+# Transform otu table to matrix with numeric values
+otu_mat_fung <- as.matrix(otu_mat_fung)
+class(otu_mat_fung) <- "numeric"
+
+# Transform taxonomy table to matrix
+tax_mat_fung <- as.matrix(tax_mat_fung)
+
+# Transform matrices to phyloseq objects
+OTU_fung = phyloseq::otu_table(otu_mat_fung, taxa_are_rows = TRUE)
+TAX_fung = phyloseq::tax_table(tax_mat_fung)
+samples_fung = phyloseq::sample_data(samples_df_fung)
+
+# Make phyloseq object
+physeq_fung <- phyloseq::phyloseq(OTU_fung, TAX_fung, samples_fung)
+physeq_fung
+
+# Define colours
+phyla_fung_cols = c("Ascomycota"="darkseagreen1","Basidiomycota"="darkseagreen")
+
+# Make an exploratory barplot using relative abundance
+phyloseq::plot_bar(physeq_fung, "TissueTubeID", fill="phylum") + 
+  geom_bar(aes(fill = phylum), stat="identity", position="stack") +
+  labs(x = "", y = "Total abundance") +
+  theme(strip.text.x = element_text(size = 12, color = "black" ),strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  facet_wrap(Tribe~SpeciesID, scales=("free"),nrow=3) +
+  theme(panel.background = element_blank())  +
+  scale_fill_manual(values=phyla_fung_cols)
+
+#######################################################
+# Make physeq_fung with identification to phylum level
+########################################################
+# Subset to phylum level
+physeq_fung_phylum <- tax_glom(physeq_fung, taxrank=rank_names(physeq_fung)[2], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Need a min of 10 reads per OTU per sample
+df_fung_phylum <- as.data.frame(otu_table(physeq_fung_phylum))
+df_fung_phylum[df_fung_phylum < 10 ] <- 0
+
+# Remove samples with lower than 10 counts
+df_fung_phylum <- df_fung_phylum[,colSums(df_fung_phylum) >= 10]
+
+# Only presence-abscence, to change values to 1
+df_fung_phylum[df_fung_phylum > 1 ] <- 1
+
+# Add again to Phyloseq
+otu_table(physeq_fung_phylum) <- phyloseq::otu_table(df_fung_phylum, taxa_are_rows = TRUE)
+
+# Add variable combining SpeciesID and TissueID for plot
+variable1 = as.character(get_variable(physeq_fung_phylum, "SpeciesID"))
+variable2 = as.character(get_variable(physeq_fung_phylum, "TissueID"))
+sample_data(physeq_fung_phylum)$SpeciesID_TissueID <- mapply(paste0, variable1, variable2,collapse = "_")
+
+# Merge per species, FG vs HG
+physeq_fung_phylum_spp_tiss <- merge_samples(physeq_fung_phylum, "SpeciesID_TissueID", fun=sum) 
+
+# Extract otu table
+fung_phylum_spp_tiss = as(otu_table(physeq_fung_phylum_spp_tiss), "matrix")
+
+# Rename TaxID's
+colnames(fung_phylum_spp_tiss) <- with(Tax_table_strict_fung, phylum[match(colnames(fung_phylum_spp_tiss),rownames(Tax_table_strict_fung))])
+
+# Melt matrix for graph
+fung_phylum_spp_tiss_melt <- melt(t(fung_phylum_spp_tiss), id.vars = "SpeciesID_TissueID", variable.name = "Phylum")
+fung_phylum_spp_tiss_melt$value <- as.numeric(fung_phylum_spp_tiss_melt$value)
+
+# Put NA so only dots when there are values
+fung_phylum_spp_tiss_melt[fung_phylum_spp_tiss_melt == 0] <- NA
+
+# Add metadata
+sample_data_phylum_fung <- as.data.frame(sample_data(physeq_fung_phylum))
+fung_phylum_spp_tiss_melt$SpeciesID = with(sample_data_phylum_fung, SpeciesID[match(fung_phylum_spp_tiss_melt$Var2,sample_data_phylum_fung$SpeciesID_TissueID)])
+fung_phylum_spp_tiss_melt$Tribe = with(sample_data_phylum_fung, Tribe[match(fung_phylum_spp_tiss_melt$Var2,sample_data_phylum_fung$SpeciesID_TissueID)])
+fung_phylum_spp_tiss_melt$TissueID = with(sample_data_phylum_fung, TissueID[match(fung_phylum_spp_tiss_melt$Var2,sample_data_phylum_fung$SpeciesID_TissueID)])
+
+# Rename FG HG
+fung_phylum_spp_tiss_melt <- fung_phylum_spp_tiss_melt %>%
+  mutate(TissueID = recode(TissueID, ContentFG = 'AG', ContentHG = 'PG' ))
+
+# Combine fungsite and tissue id for graph
+fung_phylum_spp_tiss_melt$para_tiss <- paste(fung_phylum_spp_tiss_melt$Var1,fung_phylum_spp_tiss_melt$TissueID)
+
+# Order Cichlids in rigth way
+fung_cichlid_phylum_host_ordering <- c("Cunlon","Asplep","Plestr","Spaery","Erecya","Trodub","Petpol","Petort","Ctehor","Astbur","Varmoo","Neotre","Neowal","Neobri","Telvit","Neonig","Altcom")
+
+# Rename column
+fung_phylum_spp_tiss_melt$FOO <- fung_phylum_spp_tiss_melt$value
+
+# Make bubble plot
+ggplot(fung_phylum_spp_tiss_melt, aes(y=para_tiss,x=factor(SpeciesID, level = fung_cichlid_phylum_host_ordering),colour=Tribe, size=FOO)) +
+  geom_point() +
+  scale_colour_manual(values=tribe_colours) + 
+  scale_size(range = c(4,10)) +
+  scale_y_discrete(limits=rev) +
+  theme_minimal() +
+  theme(axis.title.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.label.y=element_blank(),
+        axis.ticks.y=element_blank()) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,color = "black"))
+
+################################################################################
+# Check parasites
+##################
+# Filter abundance table before taxa filtering
+matrix_abund_para <- matrix_abund_1[rowSums(matrix_abund_1) >= 800,]
+matrix_abund_para <- matrix_abund_para[rowSums(matrix_abund_para > 20) >= 2,]
+
+# Remove reference, hybrid and problematic samples
+matrix_abund_para <- matrix_abund_para[ ,colnames(matrix_abund_para) %in% rownames(all_metadata_1) ]
+
+# Same for taxonomy table
+Tax_table_strict_para <- Tax_table_strict[ rownames(Tax_table_strict) %in% rownames(matrix_abund_para), ]
+
+# Only take Animalia parasite taxa
+Tax_table_strict_para <- Tax_table_strict_para[ Tax_table_strict_para$phylum %in% c("Acanthocephala","Platyhelminthes","Nematoda","Myzozoa"), ]
+
+# Keep only these rows in abundance table for which we have a taxonomy
+matrix_abund_para <- matrix_abund_para[ rownames(matrix_abund_para) %in% rownames(Tax_table_strict_para), ]
+
+# Remove samples with lower than 10 counts
+matrix_abund_para <- matrix_abund_para[,colSums(matrix_abund_para) >= 10]
+
+# Keep only these samples in metadata
+all_metadata_para <- all_metadata[ rownames(all_metadata) %in% colnames(matrix_abund_para) ,]
+
+# Make Phyloseq object
+# Specify datasets needed
+otu_mat_para <- matrix_abund_para
+tax_mat_para <- Tax_table_strict_para
+samples_df_para <- all_metadata_para
+
+# Transform otu table to matrix with numeric values
+otu_mat_para <- as.matrix(otu_mat_para)
+class(otu_mat_para) <- "numeric"
+
+# Transform taxonomy table to matrix
+tax_mat_para <- as.matrix(tax_mat_para)
+
+# Transform matrices to phyloseq objects
+OTU_para = phyloseq::otu_table(otu_mat_para, taxa_are_rows = TRUE)
+TAX_para = phyloseq::tax_table(tax_mat_para)
+samples_para = phyloseq::sample_data(samples_df_para)
+
+# Make phyloseq object
+physeq_para <- phyloseq::phyloseq(OTU_para, TAX_para, samples_para)
+physeq_para
+
+# Define colours
+phyla_para_cols = c("Nematoda"="darkseagreen1","Platyhelminthes"="khaki3", "Acanthocephala"="thistle4")
+class_para_cols = c("Chromadorea"="darkseagreen1","Trematoda"="peachpuff3", "Eoacanthocephala"="thistle4")
+
+# Make an exploratory barplot using relative abundance
+phyloseq::plot_bar(physeq_para, "TissueTubeID", fill="phylum") + 
+  geom_bar(aes(fill = phylum), stat="identity", position="stack") +
+  labs(x = "", y = "Total abundance") +
+  theme(strip.text.x = element_text(size = 12, color = "black" ),strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  facet_wrap(Tribe~SpeciesID, scales=("free"),nrow=3) +
+  theme(panel.background = element_blank())  +
+  scale_fill_manual(values=phyla_para_cols)
+
+########################################################
+# Make physeq_para with identification to phylum level
+########################################################
+# Subset to phylum level
+physeq_para_phylum <- tax_glom(physeq_para, taxrank=rank_names(physeq_para)[2], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Need a min of 10 reads per OTU per sample
+df_para_phylum <- as.data.frame(otu_table(physeq_para_phylum))
+df_para_phylum[df_para_phylum < 10 ] <- 0
+
+# Remove samples with lower than 10 counts
+df_para_phylum <- df_para_phylum[,colSums(df_para_phylum) >= 10]
+
+# Only presence-abscence, change values to 1
+df_para_phylum[df_para_phylum > 1 ] <- 1
+
+# Add again to Phyloseq
+otu_table(physeq_para_phylum) <- phyloseq::otu_table(df_para_phylum, taxa_are_rows = TRUE)
+
+# Add variable combining SpeciesID and TissueID for plot
+variable1 = as.character(get_variable(physeq_para_phylum, "SpeciesID"))
+variable2 = as.character(get_variable(physeq_para_phylum, "TissueID"))
+sample_data(physeq_para_phylum)$SpeciesID_TissueID <- mapply(paste0, variable1, variable2,collapse = "_")
+
+# Merge per species, FG vs HG
+physeq_para_phylum_spp_tiss <- merge_samples(physeq_para_phylum, "SpeciesID_TissueID", fun=sum) 
+
+# Extract otu table
+para_phylum_spp_tiss = as(otu_table(physeq_para_phylum_spp_tiss), "matrix")
+
+# Rename TaxID's
+colnames(para_phylum_spp_tiss) <- with(Tax_table_strict_para, phylum[match(colnames(para_phylum_spp_tiss),rownames(Tax_table_strict_para))])
+
+# Melt matrix for graph
+library(reshape2)
+para_phylum_spp_tiss_melt <- melt(t(para_phylum_spp_tiss), id.vars = "SpeciesID_TissueID", variable.name = "Phylum")
+para_phylum_spp_tiss_melt$value <- as.numeric(para_phylum_spp_tiss_melt$value)
+
+# Put NA so only dots when there are values
+para_phylum_spp_tiss_melt[para_phylum_spp_tiss_melt == 0] <- NA
+
+# Add metadata
+sample_data_phylum_para <- as.data.frame(sample_data(physeq_para_phylum))
+para_phylum_spp_tiss_melt$SpeciesID = with(sample_data_phylum_para, SpeciesID[match(para_phylum_spp_tiss_melt$Var2,sample_data_phylum_para$SpeciesID_TissueID)])
+para_phylum_spp_tiss_melt$Tribe = with(sample_data_phylum_para, Tribe[match(para_phylum_spp_tiss_melt$Var2,sample_data_phylum_para$SpeciesID_TissueID)])
+para_phylum_spp_tiss_melt$TissueID = with(sample_data_phylum_para, TissueID[match(para_phylum_spp_tiss_melt$Var2,sample_data_phylum_para$SpeciesID_TissueID)])
+
+# Rename FG HG
+para_phylum_spp_tiss_melt <- para_phylum_spp_tiss_melt %>%
+  mutate(TissueID = recode(TissueID, ContentFG = 'AG', ContentHG = 'PG' ))
+
+# Combine parasite and tissue id for graph
+para_phylum_spp_tiss_melt$para_tiss <- paste(para_phylum_spp_tiss_melt$Var1,para_phylum_spp_tiss_melt$TissueID)
+
+# Order Cichlids in rigth way
+para_cichlid_phylum_host_ordering <- c("Boumic","Batgra","Batvit","Gralem","Calple","Cyafur","Xenbou","PcybrN","Cypdwj","Tromoo","Petpol","Simdia","Limdar","Simple","Gnapfe","Astbur","Lamlem")
+
+# Rename column
+para_phylum_spp_tiss_melt$FOO <- para_phylum_spp_tiss_melt$value
+
+# Make bubble graph
+ggplot(para_phylum_spp_tiss_melt, aes(y=para_tiss,x=factor(SpeciesID, level = para_cichlid_phylum_host_ordering),colour=Tribe, size=FOO)) +
+  geom_point() +
+  scale_colour_manual(values=tribe_colours) + 
+  scale_size(range = c(4,10)) +
+  scale_y_discrete(limits=rev) +
+  theme_minimal() +
+  theme(axis.title.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.label.y=element_blank(),
+        axis.ticks.y=element_blank()) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,color = "black"))
+
+
+########################################################
+# Make physeq_para with identification to class level
+#########################################################
+# Merge at class level
+physeq_para_class <- tax_glom(physeq_para, taxrank=rank_names(physeq_para)[3], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+df_para_class <- as.data.frame(otu_table(physeq_para_class))
+
+# Need a min of 10 reads per OTU per sample
+df_para_class[df_para_class < 10 ] <- 0
+
+# Remove samples with lower than 10 counts
+df_para_class <- df_para_class[,colSums(df_para_class) >= 10]
+
+# Only presence-abscence, to change values to 1
+df_para_class[df_para_class > 1 ] <- 1
+
+# Add again to Phyloseq
+otu_table(physeq_para_class) <- phyloseq::otu_table(df_para_class, taxa_are_rows = TRUE)
+
+# Merge SpeciesID and TissueID
+variable1 = as.character(get_variable(physeq_para_class, "SpeciesID"))
+variable2 = as.character(get_variable(physeq_para_class, "TissueID"))
+sample_data(physeq_para_class)$SpeciesID_TissueID <- mapply(paste0, variable1, variable2,collapse = "_")
+
+# Merge per species and FG HG
+physeq_para_class_spp_tiss <- merge_samples(physeq_para_class, "SpeciesID_TissueID", fun=sum) 
+
+# combine species
+para_class_spp_tiss = as(otu_table(physeq_para_class_spp_tiss), "matrix")
+
+# Rename TaxID's
+colnames(para_class_spp_tiss) <- with(Tax_table_strict_para, class[match(colnames(para_class_spp_tiss),rownames(Tax_table_strict_para))])
+
+# Melt data
+para_class_spp_tiss_melt <- melt(t(para_class_spp_tiss), id.vars = "SpeciesID_TissueID", variable.name = "class")
+
+# Define as numeric
+para_class_spp_tiss_melt$value <- as.numeric(para_class_spp_tiss_melt$value)
+
+# Remove species that have no parasite classes
+para_class_spp_tiss_melt[para_class_spp_tiss_melt == 0] <- NA
+
+# Add metadata
+sample_data_class_para <- as.data.frame(sample_data(physeq_para_class))
+para_class_spp_tiss_melt$SpeciesID = with(sample_data_class_para, SpeciesID[match(para_class_spp_tiss_melt$Var2,sample_data_class_para$SpeciesID_TissueID)])
+para_class_spp_tiss_melt$Tribe = with(sample_data_class_para, Tribe[match(para_class_spp_tiss_melt$Var2,sample_data_class_para$SpeciesID_TissueID)])
+para_class_spp_tiss_melt$TissueID = with(sample_data_class_para, TissueID[match(para_class_spp_tiss_melt$Var2,sample_data_class_para$SpeciesID_TissueID)])
+
+# Rename FG HG
+para_class_spp_tiss_melt <- para_class_spp_tiss_melt %>%
+  mutate(TissueID = recode(TissueID, ContentFG = 'AG', ContentHG = 'PG' ))
+
+# Combine metadata
+para_class_spp_tiss_melt$para_tiss <- paste(para_class_spp_tiss_melt$Var1,para_class_spp_tiss_melt$TissueID)
+
+# Order the taxa in the desired way
+para_class_ordering <- c("Eoacanthocephala AG","Eoacanthocephala PG","Chromadorea AG","Chromadorea PG","Cestoda AG","Cestoda PG","Trematoda AG","Trematoda PG")
+para_class_spp_tiss_melt$para_tiss <- factor(para_class_spp_tiss_melt$para_tiss, levels=para_class_ordering)
+para_class_spp_tiss_melt <- para_class_spp_tiss_melt[order(para_class_spp_tiss_melt$para_tiss),]
+
+# Rename column
+para_class_spp_tiss_melt$FOO <- para_class_spp_tiss_melt$value
+
+# Make bubble plot
+ggplot(para_class_spp_tiss_melt, aes(y=para_tiss,x=factor(SpeciesID, level = para_cichlid_phylum_host_ordering),colour=Tribe, size=FOO)) +
+  geom_point() +
+  scale_colour_manual(values=tribe_colours) + 
+  theme_minimal() + 
+  scale_size(range = c(4,10)) +
+  scale_y_discrete(limits=rev) +
+  theme(axis.title.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks.y=element_blank()) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,color = "black"))

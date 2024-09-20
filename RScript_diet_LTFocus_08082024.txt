@@ -1,0 +1,567 @@
+################################################################################
+# RScript for metagenomic analysis of cichlid food sources using the LT focus DB
+################################################################################
+# Use Kraken for calculations and analysis at higher levels, such as Phylum and Class, not for Species or Genus
+# Otherwise, reads only identified at Chordata level might be from host or human, but that is not known and can bias results
+# By C.E.T. Huyghe
+
+# Set working directory
+setwd("/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/Kraken_NoHostSP_R/")
+
+###############
+# Load datasets 
+###############
+library(plyr)
+library(dplyr)
+
+# Load metadata
+all_metadata <- read.delim(file="../Metadata_DNA_15112023.txt",sep="\t",check.names=FALSE, row.names = 1)
+
+# Read table from combine_kreport.py
+matrix <- read.delim(file="../kraken_combined_focus_NoHost_report.txt",sep="\t")
+
+# Make rownames NCBI TaxID
+rownames(matrix) <- matrix$taxid
+
+# Remove % total reads, combined number of reads (including reads within subtree), combined number of reads (only at this level), taxonomic classification level, name of level
+matrix_2 <- as.data.frame(subset(matrix, select = -c(lvl_type,name,X.perc,tot_all,tot_lvl,taxid)))
+
+# Remove majority taxid's
+matrix_3 <- matrix_2[rowSums(matrix_2[])>0,]
+
+# Remove of each sample the total nr of reads at tax level, only use the nr of reads at that specific level, otherwise more reads in total
+matrix_3 <- as.data.frame(t(matrix_3))
+matrix_4 <- dplyr::filter(matrix_3, grepl('_lvl', rownames(matrix_3))) 
+rownames(matrix_4) <- sub("_lvl", "", rownames(matrix_4))
+matrix_4 <- as.data.frame(t(matrix_4))
+
+# Remove taxIDs without reads at that specific level
+matrix_5 <- matrix_4[rowSums(matrix_4[])>0,]
+
+# Replace colnames 
+colnames <- read.delim(file="../Samples_kreport_NoHost_focus.txt",sep="\t" )
+matrix_6 <- matrix_5
+colnames(matrix_6) <- colnames$SampleID
+
+rm(matrix)
+rm(matrix_2)
+rm(matrix_3)
+rm(matrix_4)
+rm(matrix_5)
+
+#################################
+# Make Taxonomy table and filter
+#################################
+library(plyr)
+library(dplyr)
+
+# First extract TaxID's
+taxaId <- rownames(matrix_6)
+
+# Make table with the whole NCBI taxonomy of the specific TaxID's
+#prepareDatabase('accessionTaxa.sql')
+library(taxonomizr)
+TaxID <- getTaxonomy(taxaId,'../taxonomy_ncbi/accessionTaxa.sql')
+TaxID <- data.frame(TaxID)
+
+# Only keep Eukaryota for Diet
+Euk <- rownames(TaxID[TaxID$superkingdom == 'Eukaryota',])
+Tax_table <- TaxID[rownames(TaxID) %in% Euk, ]
+
+# Check phyla that are present
+unique(Tax_table$phylum)
+
+# Remove Cichlids
+Tax_table_strict <- Tax_table[ ! Tax_table$order %in% "Cichliformes", ]
+
+# Add taxonomy to missing data
+Tax_table_strict[rownames(subset(Tax_table_strict, order=='Ceratodontiformes')),"class"] <- "Dipneusti"
+Tax_table_strict[rownames(subset(Tax_table_strict, order=='Crocodylia')),"class"] <- "Reptilia"
+Tax_table_strict[rownames(subset(Tax_table_strict, order=='Opistognathidae')),"class"] <- "Reptilia"
+
+Tax_table_strict[rownames(subset(Tax_table_strict, family=='Lymnaeidae')),"order"] <- "Hygrophila"
+Tax_table_strict[rownames(subset(Tax_table_strict, class=='Eustigmatophyceae')),"phylum"] <- "Ochrophyta"
+Tax_table_strict[rownames(subset(Tax_table_strict, class=='Dinophyceae')),"order"] <- "Myzozoa"
+
+Tax_table_strict[rownames(subset(Tax_table_strict, genus=='Lates')),"family"] <- "Latidae"
+Tax_table_strict[rownames(subset(Tax_table_strict, family=='Latidae')),"order"] <- "Carangaria incertae sedis Latidae"
+
+# Also remove Chordata and Actinopterygi that are not identified to order level, might incl cichlids
+Tax_table_inter <- Tax_table_strict[ Tax_table_strict$phylum %in% "Chordata", ]
+Tax_table_inter_2 <- Tax_table_inter[is.na(Tax_table_inter$order), ] 
+Tax_table_inter_3 <- Tax_table_inter_2[is.na(Tax_table_inter_2$family), ] 
+
+OnlChr <- rownames(Tax_table_inter_3[is.na(Tax_table_inter_3$class), ] )
+OnlAct <- rownames(Tax_table_inter_3[Tax_table_inter_3$class == "Actinopteri", ] )
+
+Tax_table_strict <- Tax_table_strict[ ! rownames(Tax_table_strict) %in% OnlChr, ]
+Tax_table_strict <- Tax_table_strict[ ! rownames(Tax_table_strict) %in% OnlAct, ]
+
+# Remove taxa not identified lower than Eukaryota
+Tax_table_strict0 <- Tax_table_strict[is.na(Tax_table_strict$phylum), ] 
+Tax_table_strict00 <- Tax_table_strict0[is.na(Tax_table_strict0$class), ] 
+Tax_table_strict000 <- Tax_table_strict00[is.na(Tax_table_strict00$order), ] 
+
+Tax_table_strict <- Tax_table_strict[ ! rownames(Tax_table_strict) %in% rownames(Tax_table_strict000), ]
+
+# Remove spaces in rownames that might cause errors
+row.names(matrix_6) <- gsub(' ', '', row.names(matrix_6))
+row.names(Tax_table_strict) <- gsub(' ', '', row.names(Tax_table_strict))
+
+# Keep only these rows in abundance table for which we have a taxonomy
+matrix_abund_0 <- matrix_6[ rownames(matrix_6) %in% rownames(Tax_table_strict), ]
+
+# Remove the reference samples
+refgut <- rownames(all_metadata[all_metadata$TissueID == 'Refgut',])
+matrix_abund_0 <- matrix_abund_0[ , ! colnames(matrix_abund_0) %in% refgut]
+
+# Remove hybrid sample
+Hybrid <- rownames(all_metadata[all_metadata$SpecimenID == 'TYD7',])
+matrix_abund_0 <- matrix_abund_0[ , ! colnames(matrix_abund_0) %in% Hybrid ]
+
+# Remove problematic samples from mitogen tree
+rm1 <- rownames(all_metadata[all_metadata$TissueTubeID == 'TXD2',])
+rm2 <- rownames(all_metadata[all_metadata$TissueTubeID == 'VIE9',])
+rm3 <- rownames(all_metadata[all_metadata$TissueTubeID == 'TZB5',])
+matrix_abund_0 <- matrix_abund_0[ , ! colnames(matrix_abund_0) %in% rm1 ]
+matrix_abund_0 <- matrix_abund_0[ , ! colnames(matrix_abund_0) %in% rm2 ]
+matrix_abund_0 <- matrix_abund_0[ , ! colnames(matrix_abund_0) %in% rm3 ]
+
+# Check total nr of reads per sample
+tot_nr_0 <- as.data.frame( colSums(matrix_abund_0))
+rownames(tot_nr_0) <- colnames(matrix_abund_0)
+tot_nr_0$Sample <- rownames(tot_nr_0)
+tot_nr_0$read_count <- tot_nr_0$`colSums(matrix_abund_0)`
+
+# Explore nr reads per sample
+summary(tot_nr_0)
+plot(density(tot_nr_0$read_count))
+hist(tot_nr_0$read_count,breaks=100)
+plot(sort(tot_nr_0$read_count))
+
+# Check total nr of reads per OTU
+tot_nr_OTU <- as.data.frame(rowSums(matrix_abund_0))
+tot_nr_OTU$Sample <- rownames(tot_nr_OTU)
+tot_nr_OTU$read_count <- tot_nr_OTU$`rowSums(matrix_abund_0)`
+
+# Explore OTU count
+summary(tot_nr_OTU)
+plot(density(tot_nr_OTU$read_count))
+hist(tot_nr_OTU$read_count,breaks=100)
+plot(sort(tot_nr_OTU$read_count))
+
+# Filter samples and taxa
+matrix_abund_1 <- matrix_abund_0
+matrix_abund_1 <- matrix_abund_1[rowSums(matrix_abund_1) > 10,]
+matrix_abund_1 <- matrix_abund_1[,colSums(matrix_abund_1) >= 100]
+matrix_abund_2 <- matrix_abund_1[,colSums(matrix_abund_1 > 20) >= 2]
+
+# To taxonomy after filtering
+Tax_table_strict_2 <- Tax_table_strict[ rownames(Tax_table_strict) %in% rownames(matrix_abund_2), ]
+
+# Remove our jellyfish and Sponge
+Tax_table_strict_2 <- Tax_table_strict_2[ ! rownames(Tax_table_strict_2) %in% c("6050","1914956"), ]
+
+# Remove parasites
+# Annelid identified as leech kept as annelid, no intestinal leech parasites
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$phylum %in% c("Acanthocephala","Platyhelminthes","Nematoda"), ]
+
+# Remove protists
+Tax_table_strict_2 <- Tax_table_strict_2[ ! Tax_table_strict_2$phylum %in% c("Ciliophora","Myzozoa","Fornicata","Apicomplexa"), ]
+
+# Keep only these rows in abundance table for which we have a taxonomy
+matrix_abund_2 <- matrix_abund_2[ rownames(matrix_abund_2) %in% rownames(Tax_table_strict_2), ]
+
+# Remove samples with zero counts
+matrix_abund_2 <- matrix_abund_2[,colSums(matrix_abund_2) >= 1]
+
+# Create metadata
+all_metadata_2 <- all_metadata[ rownames(all_metadata) %in% colnames(matrix_abund_2) ,]
+
+########################
+# Make a PhyloSeq object
+########################
+library(phyloseq)
+library(vegan)
+
+# Specify datasets needed
+otu_mat <- matrix_abund_2
+tax_mat <- Tax_table_strict_2
+samples_df <- all_metadata_2
+
+# Transform otu table to matrix with numeric values
+otu_mat <- as.matrix(otu_mat)
+class(otu_mat) <- "numeric"
+
+# Transform taxonomy table to matrix
+tax_mat <- as.matrix(tax_mat)
+
+# Transform matrices to phyloseq objects
+OTU = phyloseq::otu_table(otu_mat, taxa_are_rows = TRUE)
+TAX = phyloseq::tax_table(tax_mat)
+samples = phyloseq::sample_data(samples_df)
+
+physeq <- phyloseq::phyloseq(OTU, TAX, samples)
+physeq
+
+################################################################################
+# Make subset to phylum level 
+#############################
+# Make physeq with identification to phylum level
+physeq_phylum <- tax_glom(physeq, taxrank=rank_names(physeq)[2], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Filter taxonomic hits
+df_physeq_phylum <- as.data.frame(otu_table(physeq_phylum))
+df_physeq_phylum[(df_physeq_phylum) < 20 ] <- 0
+df_physeq_phylum <- df_physeq_phylum[rowSums(df_physeq_phylum) >= 500,]
+df_physeq_phylum[apply(df_physeq_phylum,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add to physeq_phylum
+otu_table(physeq_phylum) <- phyloseq::otu_table(df_physeq_phylum, taxa_are_rows = TRUE)
+
+# Remove Samples that have less than 100 reads left
+physeq_phylum = prune_samples(sample_sums(physeq_phylum)>=100, physeq_phylum)
+
+###################################
+# Make phylum abundance per species
+###################################
+# Merge samples by Specimen
+physeq_phylum_Specimen0 <- physeq_phylum
+physeq_phylum_Specimen <- merge_samples(physeq_phylum_Specimen0,"SpecimenID",fun=sum)
+
+# Take relative values
+physeq_phylum_Specimen1 <- phyloseq::transform_sample_counts(physeq_phylum_Specimen, function(x) (x / sum(x)*100))
+
+# Merge by SpeciesID
+sample_data(physeq_phylum_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_phylum_Specimen1)),all_metadata_2$SpecimenID)])
+physeq_phylum_Specimen_spp <- merge_samples(physeq_phylum_Specimen1, "SpeciesID", fun=mean) 
+
+# Add phylogeny our samples
+library(ape)
+ActualPhylogeny = "/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/b1_with_Oretan.tre"
+pruned.tree = ape::read.tree(ActualPhylogeny)
+
+# Filter phylogenetic tree by only species in this study
+species <- unique(sample_data(physeq_phylum)$SpeciesID)
+pruned.tree = drop.tip(pruned.tree, pruned.tree$tip.label[-which(pruned.tree$tip.label %in% species)])
+
+# Take relative values
+physeq_phylum_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_phylum_Specimen_spp, function(x) (x / sum(x)*100))
+
+# Barplot
+library(ggplot2)
+
+plot_bar(physeq_phylum_Specimen_spp_rel, fill="phylum") + 
+  geom_bar(aes(fill = phylum), stat="identity", position="stack") +
+  labs(x = "", y = "Relative Abundance\n") +
+  theme(strip.text.x = element_text(size = 12, color = "black" ),strip.background = element_rect(color="grey", fill="white", size=1.5, linetype="solid")) +
+  scale_x_discrete()  + 
+  theme(panel.background = element_blank()) +
+  scale_fill_manual(values=phyla_cols)
+
+# Plot with tree
+library(phytools)
+
+# Using ggtree
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+
+# Extract OTU table
+phylum_Specimen_spp_rel = as(otu_table(physeq_phylum_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(phylum_Specimen_spp_rel) <- with(Tax_table_strict_2, phylum[match(colnames(phylum_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Melt dataset for plot
+library(reshape2)
+bar_phylum_sp_otu <- melt(phylum_Specimen_spp_rel, id.vars = "SpeciesID", variable.name = "Phylum")
+bar_phylum_sp_otu$value <- as.numeric(bar_phylum_sp_otu$value)
+bar_phylum_sp_otu$Var2 <- factor(bar_phylum_sp_otu$Var2)
+bar_phylum_sp_otu$Var1 <- factor(bar_phylum_sp_otu$Var1)
+
+# Add table with literature phyla
+Phyla_Lit <- read.delim(file="../Lit_Diet_Phylum_08022024.txt",sep="\t",check.names=FALSE, row.names = 1)
+Phyla_Lit_melt <- melt(t(Phyla_Lit), id.vars = "SpeciesID", variable.name = "Phylum")
+Phyla_Lit_melt$value <- as.numeric(Phyla_Lit_melt$value)
+
+# Add metadata
+Metadata_spp <- all_metadata_2[c("SpeciesID", "Tribe","BreedingType","d15N_mean", "d13C_mean", "FoodCat","Habitat")]
+Metadata_spp <- Metadata_spp[!duplicated(Metadata_spp), ]
+rownames(Metadata_spp) <- Metadata_spp$SpeciesID
+Metadata_spp$d15N_mean <- as.numeric(Metadata_spp$d15N_mean)
+Metadata_spp$d13C_mean <- as.numeric(Metadata_spp$d13C_mean)
+
+# Make basis figure with phylogenetic tree
+p <- ggtree(pruned.tree,ladderize = FALSE)
+
+# Define colours of the tribes
+tribe_colours <- c("Bathybatini"="#242626", "Benthochromini"="#AE262A", "Boulengerochromini"="#59595C", "Cyphotilapiini"="#FDDF13","Cyprichromini"="#F04D29","Ectodini"="#9AB9D9","Eretmodini"="#682E7A","Haplochromini"="darkgreen","Lamprologini"="#C588BB","Limnochromini"="#535CA9", "Perissodini"="orange","Trematocarini"="#959170", "Tropheini"="#86C773","Oreochromini"="grey")
+
+# Assign tribes to tree
+p$data$Tribe <- with(Metadata_spp, Tribe[match(p$data$label,rownames(Metadata_spp))])
+p + geom_tree(size=1.5,aes(colour=Tribe)) + scale_colour_manual(values=tribe_colours) + geom_text(aes(label=node), hjust=-.3) + geom_treescale()
+
+p$data$Tribe[p$data$parent >= 85 & p$data$parent < 94 ] <- "Tropheini"
+p$data$Tribe[p$data$parent == 84 & p$data$node == 85 ] <- "Tropheini"
+p$data$Tribe[p$data$parent == 83 & p$data$node == 95 ] <- "Eretmodini"
+p$data$Tribe[p$data$parent == 96 & p$data$node == 98 ] <- "Cyprichromini"
+p$data$Tribe[p$data$parent >= 101 & p$data$parent < 108 ] <- "Ectodini"
+p$data$Tribe[p$data$parent == 100 & p$data$node == 101 ] <- "Ectodini"
+p$data$Tribe[p$data$parent == 100 & p$data$node == 109 ] <- "Limnochromini"
+p$data$Tribe[p$data$parent == 99 & p$data$node == 110 ] <- "Cyphotilapiini"
+p$data$Tribe[p$data$parent >= 62 & p$data$parent < 80 ] <- "Lamprologini"
+p$data$Tribe[p$data$parent == 61 & p$data$node == 62 ] <- "Lamprologini"
+p$data$Tribe[p$data$parent >= 114 & p$data$node == 115 ] <- "Trematocarini"
+p$data$Tribe[p$data$parent == 112 & p$data$node == 114 ] <- "Trematocarini"
+p$data$Tribe[p$data$parent == 112 & p$data$node == 113 ] <- "Bathybatini"
+
+# Define colors phyla
+phyla_cols = c("Annelida"="lightpink3","Arthropoda"="peru", "Bacillariophyta"="darkseagreen2", "Chlorophyta"="palegreen3","Algae"= "#2f7d44" , "Rhodophyta" ="darkseagreen"  , "Chordata"="#224e66","Cnidaria"="ghostwhite","Mollusca"="brown","Nematoda"="indianred4","Platyhelminthes"="lightpink3","Porifera"="khaki1","Streptophyta"="mediumseagreen","Myzozoa"="gray38","Rotifera"="lightsalmon4")
+
+# Make stacked barplot with phylogeny of cichlids
+p + geom_tree(size=1.3,aes(colour=Tribe)) + 
+  scale_colour_manual(values=tribe_colours) + 
+  geom_treescale()+
+  geom_tiplab(geom="text",offset=0,size=3,as_ylab=FALSE) +
+  geom_fruit(data=bar_phylum_sp_otu, geom=geom_bar,mapping=aes(y=Var1, x=value,fill = Var2), stat="identity", width = 0.9,pwidth=2,offset=0.7)+
+  scale_fill_manual(values=phyla_cols) + 
+  new_scale_colour() +
+  geom_fruit(data=Phyla_Lit_melt,geom=geom_point,mapping=aes(y=Var1,x=Var2,colour=Var2, size=value), pwidth = 0.3, offset=-1.24,grid.params=list()) +
+  scale_colour_manual(values=phyla_cols) +
+  scale_size_continuous(range = c(-1, 5))  + 
+  new_scale_fill() +
+  geom_fruit(data=Metadata_spp,geom=geom_tile,mapping=aes(y=SpeciesID,fill=d13C_mean),width = 0.6, offset=-2.1) + 
+  scale_fill_distiller(direction=1) + new_scale_fill() + 
+  new_scale_fill() +
+  geom_fruit(data=Metadata_spp,geom=geom_tile,mapping=aes(y=SpeciesID,fill=d15N_mean),width = 0.6, offset=0.045) + 
+  scale_fill_distiller(direction=1,palette='YlOrBr') 
+
+###############################
+# Transform data DeSeq and vst
+###############################
+library(DESeq2)
+
+# Preparation DESeq object
+phylum_otu <- as.data.frame(t(otu_table(physeq_phylum_Specimen)+1))
+phylum_sample <- as.data.frame(sample_data(physeq_phylum_Specimen))
+phylum_tax <- as.data.frame(tax_table(physeq_phylum_Specimen))
+
+# Factor
+phylum_sample$SpecimenID<-factor(phylum_sample$SpecimenID)
+phylum_sample$TissueID<-factor(phylum_sample$TissueID)
+phylum_sample$Sex<-factor(phylum_sample$Sex)
+phylum_sample$SpeciesID<-factor(phylum_sample$SpeciesID)
+
+# coldata needs to be ordered same way as counts for deseq
+phylum_sample <- phylum_sample[order(rownames(phylum_sample)),]
+phylum_otu <- phylum_otu[,order(colnames(phylum_otu))]
+
+# Add metadata
+phylum_sample$SpeciesID = with(all_metadata_2, SpeciesID[match(rownames(phylum_sample),SpecimenID)])
+phylum_sample$Tribe = with(all_metadata_2, Tribe[match(rownames(phylum_sample),SpecimenID)])
+
+# Make a DeSeq object
+dds <- DESeqDataSetFromMatrix(countData=phylum_otu, 
+                              colData=phylum_sample, 
+                              design=~SpeciesID) # Specifies how the counts from each OTU depend on our variables in the metadata, this case SpeciesID
+
+# Run DeSeq on object 
+dds2 <- DESeq(dds)
+
+# Check results
+res <- results(dds2)
+summary (res)
+
+# Then we need to transform the data
+# vst function will perform variance stabilizing transformation
+vsdata <- varianceStabilizingTransformation(dds2)
+
+##################
+# Make a PCA graph
+##################
+bf_pca_phylum <- data.frame(t(assay(vsdata)))
+
+# Perform PCA
+vsdata_res_phylum <- prcomp((bf_pca_phylum), scale=F)
+summary(vsdata_res_phylum)
+
+# Add metadata
+bf_pca_phylum$Tribe = with(all_metadata_2, Tribe[match(rownames(bf_pca_phylum),all_metadata_2$SpecimenID)])
+bf_pca_phylum$Sex = with(all_metadata_2, Sex[match(rownames(bf_pca_phylum),all_metadata_2$SpecimenID)])
+bf_pca_phylum$SpeciesID = with(all_metadata_2, SpeciesID[match(rownames(bf_pca_phylum),all_metadata_2$SpecimenID)])
+
+# Make PCA plot with TaxIDs
+autoplot(vsdata_res_phylum,  data = bf_pca_phylum,colour='Tribe' ,loadings = TRUE, loadings.colour = 'gray24',loadings.label = T, loadings.label.size = 3,x = 1,y=2) +
+  coord_fixed() +
+  scale_color_manual(values=tribe_colours) +
+  theme(panel.background = element_rect(fill = "white", colour = "grey50")) +
+  ggtitle("PCA Diet Phylum lvl") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+# Make PCA plot Supplementary Fig
+autoplot(vsdata_res_phylum,  data = bf_pca_phylum,colour='Tribe' ,loadings = TRUE, loadings.colour = 'gray24',loadings.label = F,  size=4,scale=F) +
+  coord_fixed() +
+  scale_color_manual(values=tribe_colours) +
+  theme(panel.background = element_rect(fill = "white", colour = "grey50")) +
+  ggtitle("PCA Diet Phylum lvl") +
+  theme(axis.text.x = element_text(color = "black", size = 11, face = "plain"),
+        axis.text.y = element_text(color = "black", size = 11),  
+        axis.title.x = element_text(color = "black", size = 14, vjust = -1, hjust=0.45),
+        axis.title.y = element_text(color = "black", size = 14, vjust = 2),
+        legend.title = element_text(size=15), legend.text = element_text(size=12),
+        panel.grid.major = element_blank(),panel.grid.minor = element_blank()) + 
+  theme(aspect.ratio = 1.1)
+
+################################################################################
+# At Class level
+################
+############################
+# Make subset to class level
+############################
+# Make physeq with identification to class level
+physeq_class <- tax_glom(physeq, taxrank=rank_names(physeq)[3], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Filter taxa
+df_physeq_class <- as.data.frame(otu_table(physeq_class))
+df_physeq_class[(df_physeq_class) < 20 ] <- 0
+df_physeq_class <- df_physeq_class[rowSums(df_physeq_class) >= 500,]
+df_physeq_class[apply(df_physeq_class,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add to physeq_class
+otu_table(physeq_class) <- phyloseq::otu_table(df_physeq_class, taxa_are_rows = TRUE)
+
+# Remove Samples that have fewer than 100 reads
+physeq_class = prune_samples(sample_sums(physeq_class)>=100, physeq_class)
+
+# Check nr reads per sample
+summary(colSums(otu_table(physeq_class)))
+sd(colSums(otu_table(physeq_class)))
+
+# Check nr cichlid species
+unique(sample_data(physeq_class)$SpeciesID)
+
+############################
+# Make Class abundance graph
+############################
+# Merge samples by Specimen
+physeq_class_Specimen0 <- physeq_class
+physeq_class_Specimen <- merge_samples(physeq_class_Specimen0,"SpecimenID",fun=sum)
+
+# Take relative values
+physeq_class_Specimen1 <- phyloseq::transform_sample_counts(physeq_class_Specimen, function(x) (x / sum(x)*100))
+
+# Merge by species
+sample_data(physeq_class_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_class_Specimen1)),all_metadata_2$SpecimenID)])
+physeq_class_Specimen_spp <- merge_samples(physeq_class_Specimen1, "SpeciesID", fun=mean) 
+
+# Add barplot to actual phylogeny
+# Take rel
+physeq_class_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_class_Specimen_spp, function(x) (x / sum(x)*100))
+
+# Add tree
+class_Specimen_spp_rel = as(otu_table(physeq_class_Specimen_spp_rel), "matrix")
+
+# Rename TaxID's
+colnames(class_Specimen_spp_rel) <- with(Tax_table_strict_2, class[match(colnames(class_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+
+# Make table for abundance tables
+bar_class_sp_otu <- melt(class_Specimen_spp_rel, id.vars = "SpeciesID", variable.name = "class")
+bar_class_sp_otu$value <- as.numeric(bar_class_sp_otu$value)
+bar_class_sp_otu$Var2 <- factor(bar_class_sp_otu$Var2)
+bar_class_sp_otu$Var1 <- factor(bar_class_sp_otu$Var1)
+
+# Add metadata
+Metadata_spp <- all_metadata_2[c("SpeciesID", "Tribe","BreedingType","d15N_mean", "d13C_mean", "FoodCat","Habitat")]
+Metadata_spp <- Metadata_spp[!duplicated(Metadata_spp), ]
+rownames(Metadata_spp) <- Metadata_spp$SpeciesID
+Metadata_spp$d15N_mean <- as.numeric(Metadata_spp$d15N_mean)
+Metadata_spp$d13C_mean <- as.numeric(Metadata_spp$d13C_mean)
+
+# Define class colours
+class_cols = c("Clitellata"="mediumpurple3","Malacostraca"="sandybrown","Hexanauplia"="coral","Ostracoda"="coral4","Insecta"="lightcoral", "Arachnida"="tan3", "Branchiopoda"="peachpuff1" ,"Eustigmatophyceae"="olivedrab1","Bacillariophyceae"="olivedrab","Mediophyceae"="olivedrab2", "Coscinodiscophyceae"="olivedrab3","Chlorophyceae"="seagreen1","Trebouxiophyceae"="seagreen3","Ulvophyceae"= "palegreen" , "Florideophyceae"="lightseagreen","","Dipneusti"="lightskyblue","Actinopteri"="#224e66", "Cladistia"="royalblue1","Hydrozoa"="ghostwhite","Gastropoda"="brown","Bivalvia"="deeppink3","Eurotatoria"="mediumpurple4","Demospongiae"="khaki1","Charophyceae"="seagreen3","Zygnemophyceae"="seagreen1","Magnoliopsida"="mediumseagreen")
+
+# Make stacked barplot per species
+p + geom_tree(size=1.3,aes(colour=Tribe)) + 
+  scale_colour_manual(values=tribe_colours) + 
+  geom_treescale()+
+  geom_tiplab(geom="text",offset=0,size=3,as_ylab=FALSE) +
+  geom_fruit(data=bar_class_sp_otu, geom=geom_bar,mapping=aes(y=Var1, x=value,fill = Var2), stat="identity", width = 0.9,pwidth=2,offset=0.12)+
+  scale_fill_manual(values=class_cols)
+
+################################################################################
+# At order level
+################
+############################
+# Make subset to order level 
+############################
+# Make physeq with identification to order level
+physeq_order <- tax_glom(physeq, taxrank=rank_names(physeq)[4], NArm=TRUE, bad_empty=c(NA, "", " ", "\t"))
+
+# Filter
+df_physeq_order <- as.data.frame(otu_table(physeq_order))
+df_physeq_order[(df_physeq_order) < 20 ] <- 0
+rowSums(df_physeq_order)
+df_physeq_order <- df_physeq_order[rowSums(df_physeq_order) >= 500,]
+df_physeq_order[apply(df_physeq_order,2,function(x){x/sum(x)}) < 0.005 ] <- 0
+
+# Add to physeq_order
+otu_table(physeq_order) <- phyloseq::otu_table(df_physeq_order, taxa_are_rows = TRUE)
+
+# Remove Samples that have fewer than 100 reads left
+physeq_order = prune_samples(sample_sums(physeq_order)>=100, physeq_order)
+physeq_order
+
+physeq_order_samples = data.frame(sample_data(physeq_order))
+summary(unique(physeq_order_samples$SpeciesID))
+
+# Check nr reads per sample
+summary(colSums(otu_table(physeq_order)))
+sd(colSums(otu_table(physeq_order)))
+
+##########################
+# Abundance at order level
+###########################
+# Merge samples by Specimen
+physeq_order_Specimen0 <- physeq_order
+physeq_order_Specimen <- merge_samples(physeq_order_Specimen0,"SpecimenID",fun=sum)
+
+# Take relative value
+physeq_order_Specimen1 <- phyloseq::transform_sample_counts(physeq_order_Specimen, function(x) (x / sum(x)*100))
+
+# Merge by species
+sample_data(physeq_order_Specimen1)$SpeciesID <-with(all_metadata_2, SpeciesID[match(rownames(sample_data(physeq_order_Specimen1)),all_metadata_2$SpecimenID)])
+physeq_order_Specimen_spp <- merge_samples(physeq_order_Specimen1, "SpeciesID", fun=mean) 
+
+# Take relative values
+physeq_order_Specimen_spp_rel <- phyloseq::transform_sample_counts(physeq_order_Specimen_spp, function(x) (x / sum(x)*100))
+
+# Rename TaxID's
+order_Specimen_spp_rel = as(otu_table(physeq_order_Specimen_spp_rel), "matrix")
+colnames(order_Specimen_spp_rel) <- with(Tax_table_strict_2, order[match(colnames(order_Specimen_spp_rel),rownames(Tax_table_strict_2))])
+unique(colnames(order_Specimen_spp_rel))
+
+# Make table for abundance tables
+bar_order_sp_otu <- melt(order_Specimen_spp_rel, id.vars = "SpeciesID", variable.name = "order")
+bar_order_sp_otu$value <- as.numeric(bar_order_sp_otu$value)
+bar_order_sp_otu$Var2 <- factor(bar_order_sp_otu$Var2)
+bar_order_sp_otu$order <- factor(bar_order_sp_otu$Var2)
+bar_order_sp_otu$Var1 <- factor(bar_order_sp_otu$Var1)
+
+# Add metadata
+Metadata_spp <- all_metadata_2[c("SpeciesID", "Tribe","BreedingType","d15N_mean", "d13C_mean", "FoodCat","Habitat")]
+Metadata_spp <- Metadata_spp[!duplicated(Metadata_spp), ]
+rownames(Metadata_spp) <- Metadata_spp$SpeciesID
+Metadata_spp$d15N_mean <- as.numeric(Metadata_spp$d15N_mean)
+Metadata_spp$d13C_mean <- as.numeric(Metadata_spp$d13C_mean)
+
+# Define colours orders
+order_cols = c("Cyprinodontiformes"="powderblue","Carangaria incertae sedis Latidae"="royalblue4","Synbranchiformes"="slategray3","Cypriniformes"="royalblue1","Siluriformes"="turquoise3", "Clupeiformes"="lightcyan", "Osteoglossiformes"="lightskyblue" ,"Polypteriformes"="mediumblue","Ceratodontiformes"="deepskyblue4","Characiformes"="turquoise","Decapoda"="sandybrown", "Podocopida"="coral4","Diplostraca"= "tan1" , "Diptera"="wheat","Trichoptera"="#82643C", "Ephemeroptera"="lightyellow","Hemiptera"="oldlace","Odonata"="tan","Ixodida"="tan4","Araneae"="tan3","Unionida"="violetred","Architaenioglossa"="violetred4","Tubificida"="mediumpurple3","Limnomedusae"="ghostwhite","Spongillida"="khaki1","Hygrophila"="thistle1", "Philodinida"="gray20", "Alismatales"="springgreen4" ,"Fagales"="springgreen","Solanales"="green3","Saxifragales"="mediumseagreen","Poales"="greenyellow","Arecales"="chartreuse2","Asparagales"="darkgreen", "Alismatales"="chartreuse3", "Ranunculales"="forestgreen" ,"Nymphaeales"="lightgreen","Zygnematales"="olivedrab4","Charales"="darkseagreen1", "Oedogoniales"="darkseagreen3","Chlorellales"="darkseagreen2","Cladophorales"="lightseagreen", "Naviculales"="olivedrab2", "Anaulales"="olivedrab1","Bonnemaisoniales"="olivedrab3","Eustigmatales"="darkolivegreen")
+
+# Make stacked barplot
+p + geom_tree(size=1.3,aes(colour=Tribe)) + 
+  scale_colour_manual(values=tribe_colours) + 
+  geom_treescale()+
+  geom_tiplab(geom="text",offset=0,size=3,as_ylab=FALSE) +
+  geom_fruit(data=bar_order_sp_otu, geom=geom_bar,mapping=aes(y=Var1, x=value,fill = order), stat="identity", width = 0.9,pwidth=2,offset=0.12)+
+  scale_fill_manual(values=order_cols)
