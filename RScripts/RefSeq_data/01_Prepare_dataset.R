@@ -3,6 +3,24 @@
 ###########################################################
 # RScript to clean and prepare metagenomic data for analysis
 # For reads classified using Kraken2 and the RefSeq v205 database, from the digestive system
+# Load required packages full analysis
+library(taxize)
+library(ggtree)
+library(ape)
+library(ggplot2)
+library(phyloseq)
+library(vegan)
+library(plyr)
+library(dplyr)
+library(gridExtra)
+library(ggfortify)
+library(caper)
+library(DESeq2)
+library(phytools)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+library(reshape2)
 
 # 1.1 Prepare metadata
 ################################################################################
