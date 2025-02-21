@@ -1,0 +1,10 @@
+## Download genomes batch from NCBI by Accession
+# By C.E.T. Huyghe (2024)
+
+cat Accession_names.txt | while read line || [[ -n $line ]];
+do 
+/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/cichlid_X_DB/datasets download genome accession ${line} --dehydrated --filename ${line}.zip
+unzip ${line}.zip -d ${line}
+/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/cichlid_X_DB/datasets rehydrate --directory ${line}/
+rm ${line}.zip
+done
