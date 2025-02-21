@@ -94,7 +94,7 @@ bar_tribe_cichl_sp_FOO$value[bar_tribe_cichl_sp_FOO$Var1 == "Tropheini" & bar_tr
 tribe_colours <- c("Bathybatini"="#242626", "Benthochromini"="#AE262A", "Boulengerochromini"="#59595C", "Cyphotilapiini"="#FDDF13","Cyprichromini"="#F04D29","Ectodini"="#9AB9D9","Eretmodini"="#682E7A","Haplochromini"="darkgreen","Lamprologini"="#C588BB","Limnochromini"="#535CA9", "Perissodini"="orange","Trematocarini"="#959170", "Tropheini"="#86C773","Oreochromini"="grey")
 # Order cichlid species by tree position
 # Load tree
-ActualPhylogeny = "/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/b1_with_Oretan.tre"
+ActualPhylogeny = "b1_with_Oretan.tre"
 pruned.tree = ape::read.tree(ActualPhylogeny)
 # Filter tree by species in this dataset
 spp <- all_metadata_2[order(all_metadata_2$Tribe),]
