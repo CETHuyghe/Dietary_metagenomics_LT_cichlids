@@ -3,16 +3,16 @@ By C.E.T. Huyghe et al.
 # 1. Scripts concerning Metagenomic read processing and taxonomic assignment
 
 ## 1.1 ScriptsReadPrep
-
 Clean sequences and remove (contamination from) host, human, viral, bacterial sources:
-### 1. Clean sequence files and remove reads mapping to high quality Oreochromis niloticus genome
-"Script_fastp_Remove_Orenil"
-### 2. Remove reads mapping to human
-"Script_Kraken2_Remove_Human"
-### 3. Remove reads mapping to the standard Kraken2 microbiome database
-"Script_Kraken2_Remove_MB"
-### 4.Remove the reads mapping to the genome of the host species (not for reference samples)
-"Script_Remove_HostSP"
+
+### 1. Script_fastp_Remove_Orenil
+Clean sequence files and remove reads mapping to high quality Oreochromis niloticus genome
+### 2. Script_Kraken2_Remove_Human
+Remove reads mapping to human
+### 3. Script_Kraken2_Remove_MB
+Remove reads mapping to the standard Kraken2 microbiome database
+### 4. Script_Remove_HostSP
+Remove the reads mapping to the genome of the host species (not for reference samples)
 
 ## 1.2 ScriptsRefAssemble
 
