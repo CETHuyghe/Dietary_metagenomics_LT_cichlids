@@ -1,0 +1,70 @@
+## Script to map metagenomes to mitogenome closely related to cichlid host
+# This reference genome needs to be indexed first using bwa index
+# Use Oreochromis tanganicae instead for the Oretan samples 
+# By C.E.T. Huyghe (2024)
+
+# Load modules
+ml BWA/0.7.17-foss-2018b
+ml SAMtools/1.12-foss-2018b 
+
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1` # Sample ID
+
+# Define forward and reverse trimmed reads
+read1=$(cat trimmed_files.txt | grep ${MYID} | grep "R1.fq.gz")
+read2=$(cat trimmed_files.txt | grep ${MYID} | grep "R2.fq.gz")
+
+# Make a working directory for each sample
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/${MYID}
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/${MYID}
+
+# Copy and unzip in temporal directory
+cp $read1 $TMPDIR/${MYID}.R1.fq.gz
+cp $read2 $TMPDIR/${MYID}.R2.fq.gz
+
+gunzip $TMPDIR/${MYID}.R1.fq.gz
+gunzip $TMPDIR/${MYID}.R2.fq.gz
+
+# Map to reference mitochondrial genome of Neolamprologus brichardi using BWA MEM
+bwa mem /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/NCBI_Mitogenomes/Neolamprologus_brichardi.fasta $TMPDIR/${MYID}.R1.fq $TMPDIR/${MYID}.R2.fq > /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/${MYID}/${MYID}.sam
+
+# Compress sam to bam
+samtools view -bS /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/${MYID}/${MYID}.sam > /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/${MYID}/${MYID}.bam
+
+# Sort bam file
+samtools sort ${MYID}.bam -o ${MYID}_sorted.bam
+
+# Index bam file
+samtools index ${MYID}_sorted.bam ${MYID}_sorted.bai
+
+# Unload modules
+module purge
+
+# Load module
+ml BCFtools/1.15-GCC-10.3.0
+
+# Manipulate variant calls by pileup and make vcd file
+bcftools mpileup -f /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/NCBI_Mitogenomes/Neolamprologus_brichardi.fasta ${MYID}_sorted.bam -O z -o ${MYID}.vcf.gz
+
+# Filter vcf file
+bcftools view -e "INFO/I16[3]<5" ${MYID}.vcf.gz -O z -o ${MYID}_filtered.vcf.gz
+rm ${MYID}.vcf.gz
+bcftools view -e "INFO/I16[2]<5" ${MYID}_filtered.vcf.gz -O z -o ${MYID}.vcf.gz
+rm ${MYID}_filtered.vcf.gz
+
+# Sort vcf file
+bcftools sort ${MYID}.vcf.gz -O z -o ${MYID}_sorted.vcf.gz
+
+# Index vcf file
+bcftools index -t ${MYID}_sorted.vcf.gz
+
+# Generate consensus sequence from sorted vcf file
+bcftools consensus -f /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/BWA_Mitogenome/NCBI_Mitogenomes/Neolamprologus_brichardi.fasta ${MYID}_sorted.vcf.gz -o ${MYID}_1.fasta
+
+# Add name
+sed 's/>.*/>'${MYID}'/' ${MYID}_1.fasta > ${MYID}.fasta
+
+rm ${MYID}_1.fasta
