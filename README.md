@@ -5,52 +5,52 @@ By C.E.T. Huyghe et al.
 ## 1.1 ScriptsReadPrep
 Clean sequences and remove (contamination from) host, human, viral, bacterial sources:
 
-### 1. Script_fastp_Remove_Orenil
+### 1.1.1 Script_fastp_Remove_Orenil
 Clean sequence files and remove reads mapping to high quality Oreochromis niloticus genome
-### 2. Script_Kraken2_Remove_Human
+### 1.1.2 Script_Kraken2_Remove_Human
 Remove reads mapping to human
-### 3. Script_Kraken2_Remove_MB
+### 1.1.3 Script_Kraken2_Remove_MB
 Remove reads mapping to the standard Kraken2 microbiome database
-### 4. Script_Remove_HostSP
+### 1.1.4 Script_Remove_HostSP
 Remove the reads mapping to the genome of the host species (not for reference samples)
 
 ## 1.2 ScriptsRefAssemble
 
 Assemble the reference samples:
-### 1. Script_ABySS_Hamburg
+### 1.2.1 Script_ABySS_Hamburg
 Script_ABySS_HamburgDe novo assemble
-### 2. Script_FCS_Adaptor
+### 1.2.2 Script_FCS_Adaptor
 Remove contaminants like adaptors 
-### 3. Script_FCS_GX
+### 1.2.3 Script_FCS_GX
 Remove contaminants by other taxa 
 
 ## 1.3 ScriptsMitoGenCichlids
 
 Generate Cichlid Genome Kraken2 Database:
-### 1. Script_Download_NCBI_CichlidGenomes
+### 1.3.1 Script_Download_NCBI_CichlidGenomes
 Download genomes batch from NCBI
-### 2. Script_Accession_to_TaxID_CichlidGenomes
+### 1.3.2 Script_Accession_to_TaxID_CichlidGenomes
 Make file with Accession and TaxID of genomes
-### 3. Script_Add_CichlidGenomes_KrakenDB
+### 1.3.3 Script_Add_CichlidGenomes_KrakenDB
 Add TaxID to genomes and add to Kraken2 database
-### 4. Script_Build_CichlidGenomes_KrakenDB
+### 1.3.4 Script_Build_CichlidGenomes_KrakenDB
 Build Kraken2 Database
 
 ## 1.4 ScriptsFocusDB
 
 Generate LT Focus Genome Kraken2 Database:
-### 1. Add TaxID to genomes and add to Kraken2 database
-"Script_Add_FocusGenomes_KrakenDB"
-### 2. Build Kraken2 Database
-"Script_Build_FocusGenomes_KrakenDB"
+### 1.4.1. Script_Add_FocusGenomes_KrakenDB
+Add TaxID to genomes and add to Kraken2 database
+### 1.4.2. Script_Build_FocusGenomes_KrakenDB
+Build Kraken2 Database
 
 ## 1.5 ScriptsCichlidDB
 
 Generate mitochondrial genomes of the host cichlid from metagenomes:
-### 1. Generate mitogenomes by mapping to reference, filter and consensus
-"Script_Generate_Cichlid_Mitogenomes"
-### 2. Calculate coverage, mean depth and number of mapped reads
-"Script_Metrics_Cichlid_Mitogenomes"
+### 1.5.1 Script_Generate_Cichlid_Mitogenomes
+Generate mitogenomes by mapping to reference, filter and consensus
+### 1.5.2 Script_Metrics_Cichlid_Mitogenomes
+Calculate coverage, mean depth and number of mapped reads
 
 ## 1.6 ScriptsKrakenClassify
 
