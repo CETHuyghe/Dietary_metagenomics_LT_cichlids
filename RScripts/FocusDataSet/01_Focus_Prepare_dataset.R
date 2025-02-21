@@ -17,7 +17,7 @@ all_metadata <- read.delim(file="CichlidLT_Diet_MetaData_CETH.txt",sep="\t",chec
 
 # Load phylogeny
 library(ape)
-ActualPhylogeny = "/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/b1_with_Oretan.tre"
+ActualPhylogeny = "b1_with_Oretan.tre"
 pruned.tree = ape::read.tree(ActualPhylogeny)
 
 # 1.2 Prepare abundance matrix
