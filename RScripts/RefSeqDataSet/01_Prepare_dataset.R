@@ -26,9 +26,9 @@ library(reshape2)
 ################################################################################
 
 # Set working directory
-setwd("/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/Kraken_NoHostSP_R/")
+setwd("")
 # Load field data and metadata of the cichlid samples and species
-all_metadata <- read.delim(file="../Metadata_DNA_15112023.txt",sep="\t",check.names=FALSE, row.names = 1)
+all_metadata <- read.delim(file="CichlidLT_Diet_MetaData_CETH.txt",sep="\t",check.names=FALSE, row.names = 1)
 
 # 1.1.1 Filter samples from metadata
 library(plyr)
@@ -45,7 +45,7 @@ all_metadata_1 <- all_metadata_1[ ! all_metadata_1$TissueTubeID %in% c('TXD2','V
 SL_vars <- ddply(all_metadata_1, .(SpeciesID), summarize, SL_mean=mean(SL), SL_std_dev=sd(SL))
 Weigth_vars <- ddply(all_metadata_1, .(SpeciesID), summarize,Weight_mean=mean(Weight), Weight_std_dev=sd(Weight))
 # Load genome-wide phylogenetic tree from Ronco et al. (2021)
-ActualPhylogeny = "/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/b1_with_Oretan.tre"
+ActualPhylogeny = "b1_with_Oretan.tre"
 pruned.tree = ape::read.tree(ActualPhylogeny)
 # Define the cichlid species part of the analysis
 spp <- all_metadata_1[order(all_metadata_1$Tribe),]
@@ -76,7 +76,7 @@ BDY_vars <- ddply(BDY, .(sp), summarize, BDY_PC1_mean=mean(PC1), BDY_PC1_std_dev
 ################################################################################
 
 # Read table generated using combine_kreport.py
-matrix0 <- read.delim(file="../kraken_combined_RefSeq_NoHost_30_report.txt",sep="\t") 
+matrix0 <- read.delim(file="CichlidLT_Diet_RefSeq_DataMatrix_CETH.txt",sep="\t") 
 # Rename the rownames by NCBI TaxID
 rownames(matrix0) <- matrix0$taxid
 # Remove unnecessary columns
@@ -94,7 +94,7 @@ matrix <- as.data.frame(t(matrix))
 matrix <- matrix[rowSums(matrix[])>0,]
 # Replace colnames by sample names
 # Use file with smaple names in same order
-colnames <- read.delim(file="../samples_NoHost_30_report.txt",sep="\t" )
+colnames <- read.delim(file="CichlidLT_Diet_RefSeq_DataMatrix_SampleNames_CETH.txt",sep="\t" )
 colnames(matrix) <- colnames$SampleID
 
 # 1.3 Prepare taxonomy table
