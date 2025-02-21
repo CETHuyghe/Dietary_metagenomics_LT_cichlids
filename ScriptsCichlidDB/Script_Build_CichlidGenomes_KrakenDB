@@ -1,0 +1,11 @@
+## Build Kraken2 cichlid genome Database
+# By C.E.T. Huyghe (2024)
+
+# Load modules
+ml Kraken2/2.1.1-foss-2018b-Perl-5.28.0
+
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/cichlid_X_DB
+
+# Build cichlid genome kraken database
+kraken2-build --build --db /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/cichlid_X_DB/LT_cichlid_db/
