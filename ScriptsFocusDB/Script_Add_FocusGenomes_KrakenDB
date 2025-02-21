@@ -1,0 +1,20 @@
+## Script to add genomes to Kraken2 database focussing on organisms from LT, with reference samples
+# By C.E.T. Huyghe (2024)
+
+# Load modules
+ml Kraken2/2.1.1-foss-2018b-Perl-5.28.0
+
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/focus_database/library_TaxID_space/
+
+# Get Genome name
+FAS=`cat add_taxa_08052024.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1` # Species of host
+
+# Get TaxID
+KRID=`grep ${FAS} TaxID_Kraken_focusDB_15122023.txt | cut -d ' ' -f2`
+
+# Add TaxID
+zcat ${FAS}.fna.gz | sed 's/ /|kraken:taxid|'${KRID}' /' > ${FAS}.fna
+
+# Add to Kraken2 focus database
+kraken2-build --add-to-library ${FAS}.fna --db /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/focus_database/focus_db/
