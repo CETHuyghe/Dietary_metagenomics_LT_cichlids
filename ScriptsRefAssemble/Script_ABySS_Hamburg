@@ -1,0 +1,19 @@
+## Script to de novo assemble the reads of the reference samples, from which Orenil, Human and microbial DNA was removed
+# Script coded in a cosy cafe in Hamburg with a macha latte after a night on the train
+# By C.E.T. Huyghe (2024)
+
+# Load modules
+ml ABySS/2.3.1-foss-2018b
+
+# Go to working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/ABySS
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1`
+
+# Make and set working directory
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/ABySS/${MYID}
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/Refgut_assemble/ABySS/${MYID}
+
+# Run ABySS for short paired-end reads
+abyss-pe name=${MYID}_60 k=60 in="/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/kraken/kraken_MB_DB/${MYID}/unclassified_seq_${MYID}_MB_1.fastq.gz /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/tanzania_2022/kraken/kraken_MB_DB/${MYID}/unclassified_seq_${MYID}_MB_2.fastq.gz"
