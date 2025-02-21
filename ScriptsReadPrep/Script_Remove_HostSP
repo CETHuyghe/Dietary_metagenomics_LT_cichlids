@@ -1,0 +1,46 @@
+## Script to remove specific host from Metagenomics data
+# By C.E.T. Huyghe (2024)
+
+# Load modules
+ml BWA/0.7.17-foss-2018b
+ml SAMtools/1.9-foss-2018b
+
+# Set working directory
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/zambia_2020/NoHostSP_bwa/
+
+# Define sample
+MYID=`cat Sample_ID.txt | head -n $SLURM_ARRAY_TASK_ID | tail -n 1`
+
+# Define reads where microbes were removed
+read1=$(cat MB_kraken.txt | grep ${MYID} | grep "_MB_1")
+read2=$(cat MB_kraken.txt | grep ${MYID} | grep "_MB_2")
+
+# Specify species
+SP=`echo ${MYID} | cut -d '_' -f1`
+
+# Define reference genome from Ronco et al., 2021 by species
+REF=`cat /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Host_Illumina_genomes/${SP}.txt`
+
+# Map to cichlid 
+bwa mem /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Host_Illumina_genomes/${REF} $read1 $read2 > $TMPDIR/${MYID}.sam
+
+# Extract unmapped
+samtools view -h -f 12 -F 256 -S $TMPDIR/${MYID}.sam > $TMPDIR/${MYID}_unmapped.sam
+
+# Extract unmapped sequences
+samtools fastq $TMPDIR/${MYID}_unmapped.sam -1 $TMPDIR/${MYID}_unmapped_1.fastq -2 $TMPDIR/${MYID}_unmapped_2.fastq
+
+# Compress fasta
+gzip $TMPDIR/*.fastq
+
+# Compress sam
+samtools view -bS $TMPDIR/${MYID}.sam > $TMPDIR/${MYID}.bam
+samtools view -bS $TMPDIR/${MYID}_unmapped.sam > $TMPDIR/${MYID}_unmapped.bam
+
+# Make and set directory for each sample
+mkdir /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/zambia_2020/NoHostSP_bwa/${MYID}
+cd /scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/zambia_2020/NoHostSP_bwa/${MYID}
+
+# Copy from temporal directory to active one
+cp $TMPDIR/${MYID}_unmapped_1.fastq.gz ${MYID}_unmapped_hostsp_1.fastq.gz
+cp $TMPDIR/${MYID}_unmapped_2.fastq.gz ${MYID}_unmapped_hostsp_2.fastq.gz
