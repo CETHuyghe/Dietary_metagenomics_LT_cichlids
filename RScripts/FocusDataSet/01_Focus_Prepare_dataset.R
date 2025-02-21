@@ -5,13 +5,13 @@
 # For reads classified using Kraken2 and the custom focus database, from the digestive system
 
 # Set working directory
-setwd("/scicore/home/salzburg/huyghe0000/sinergia/DNA_gut/Kraken_combined/Kraken_NoHostSP_R/")
+setwd("")
 
 # 1.1 Prepare metadata
 ################################################################################
 
 # 1.1.1 Load metadata
-all_metadata <- read.delim(file="../Metadata_DNA_15112023.txt",sep="\t",check.names=FALSE, row.names = 1)
+all_metadata <- read.delim(file="CichlidLT_Diet_MetaData_CETH.txt",sep="\t",check.names=FALSE, row.names = 1)
 
 # 1.1.2 Load phylogeny
 
@@ -26,7 +26,7 @@ library(plyr)
 library(dplyr)
 
 # Read table from combine_kreport.py
-matrix <- read.delim(file="../kraken_combined_focus_NoHost_report.txt",sep="\t")
+matrix <- read.delim(file="CichlidLT_Diet_Focus_DataMatrix_CETH.txt",sep="\t")
 # Make rownames NCBI TaxID
 rownames(matrix) <- matrix$taxid
 # Remove % total reads, combined number of reads (including reads within subtree), combined number of reads (only at this level), taxonomic classification level, name of level
@@ -42,7 +42,7 @@ matrix_2 <- as.data.frame(t(matrix_2))
 # Remove taxIDs without reads at that specific level
 matrix_2 <- matrix_2[rowSums(matrix_2[])>0,]
 # Replace colnames 
-colnames <- read.delim(file="../Samples_kreport_NoHost_focus.txt",sep="\t" )
+colnames <- read.delim(file="CichlidLT_Diet_Focus_DataMatrix_SampleNames_CETH.txt",sep="\t" )
 matrix_6 <- matrix_2
 rm(matrix_2)
 colnames(matrix_6) <- colnames$SampleID
