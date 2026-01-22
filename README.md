@@ -97,3 +97,7 @@ Contains RScripts used for the analyses of the metagenomic dataset, based on the
 
 ## 2.4 Reused_Data
 Datasets used for the analyses of the metagenomic dataset, originating from other studies (e.g. Ronco et al., 2021)
+
+
+
+Huyghe, C. E., Fages, A., Ronco, F., Indermaur, A., Schedel, F. D., Kimirei, I., ... & Salzburger, W. (2025). Metagenomic Insights Into the Dietary Diversity of the Adaptive Radiation of Cichlid Fishes in Lake Tanganyika. Molecular Ecology, 34(9), e17743. https://doi.org/10.1111/mec.17743
